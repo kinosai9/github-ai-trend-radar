@@ -43,6 +43,7 @@ from github_ai_trend_radar.renderers.report_model import (
     load_report_config,
     resolve_render_input,
 )
+from github_ai_trend_radar.site.build_site import build_site as build_static_site
 from github_ai_trend_radar.storage.files import load_json, save_json, snapshot_path
 
 
@@ -644,6 +645,27 @@ def push(args: argparse.Namespace) -> int:
     return 1 if args.fail_on_push_error else 0
 
 
+def build_site(args: argparse.Namespace) -> int:
+    result = build_static_site(
+        reports_dir=getattr(args, "reports_dir", "data/reports"),
+        site_dir=getattr(args, "site_dir", "site"),
+        period=getattr(args, "period", None),
+        date_value=getattr(args, "date", None),
+        all_periods=getattr(args, "all", False),
+    )
+    console.print(f"site_dir: {result.site_dir}")
+    console.print(f"reports_dir: {result.reports_dir}")
+    console.print(f"index: {result.index_path}")
+    console.print(f"reports_json: {result.reports_json_path}")
+    if result.copied_reports:
+        console.print("copied reports:")
+        for item in result.copied_reports:
+            console.print(f"- {item['date']} {item['period']} {item.get('files', {})}")
+    else:
+        console.print("[yellow]No report files found to copy. Site index was still generated.[/yellow]")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="github-ai-trend-radar",
@@ -682,6 +704,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--top-watchlist", type=int, default=None)
     run_parser.add_argument("--top-noise", type=int, default=None)
     run_parser.add_argument("--open", action="store_true", help="Open HTML report after rendering.")
+    run_parser.add_argument("--enrich-report", dest="enrich_report", action="store_true", help="Use report-only LLM enrichment when --render is used.")
+    run_parser.add_argument("--no-enrich-report", dest="enrich_report", action="store_false", help="Disable report-only LLM enrichment.")
+    run_parser.add_argument("--enrich-overview", dest="enrich_overview", action="store_true", help="Use LLM overview enrichment when --render is used.")
+    run_parser.add_argument("--no-enrich-overview", dest="enrich_overview", action="store_false", help="Disable overview enrichment.")
+    run_parser.set_defaults(enrich_report=False)
+    run_parser.set_defaults(enrich_overview=False)
     run_parser.set_defaults(handler=run)
 
     collect_parser = subparsers.add_parser(
@@ -759,6 +787,18 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument("--timeout", type=float, default=20)
     push_parser.add_argument("--retries", type=int, default=2)
     push_parser.set_defaults(handler=push)
+
+    site_parser = subparsers.add_parser(
+        "build-site",
+        help="Build a static GitHub Pages site from rendered reports.",
+        description="Build a static GitHub Pages site from rendered reports.",
+    )
+    site_parser.add_argument("--period", choices=("daily", "weekly", "monthly"), default="daily")
+    site_parser.add_argument("--date", default="latest", help="YYYY-MM-DD, latest, or omitted for latest.")
+    site_parser.add_argument("--all", action="store_true", help="Copy the latest available report for every period.")
+    site_parser.add_argument("--reports-dir", default="data/reports")
+    site_parser.add_argument("--site-dir", default="site")
+    site_parser.set_defaults(handler=build_site)
 
     for name, help_text in commands.items():
         subparser = subparsers.add_parser(name, help=help_text, description=help_text)

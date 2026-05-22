@@ -39,8 +39,8 @@ data/reports/*
 data/snapshots/*
 !data/snapshots/.gitkeep
 
-site/
-public/
+/site/
+/public/
 
 config/*.local.yaml
 config/topics.local.yaml

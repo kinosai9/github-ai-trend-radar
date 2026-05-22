@@ -1,0 +1,156 @@
+name: GitHub AI Trend Radar
+
+on:
+  workflow_dispatch:
+    inputs:
+      period:
+        description: Report period
+        type: choice
+        options:
+          - daily
+          - weekly
+          - monthly
+        default: daily
+      use_llm:
+        description: Run LLM semantic calibration
+        type: boolean
+        default: true
+      enrich_report:
+        description: Enrich displayed report cards and overview
+        type: boolean
+        default: true
+      pushplus:
+        description: Send PushPlus summary after Pages deployment
+        type: boolean
+        default: true
+      focus_topics:
+        description: Comma-separated topic keys
+        type: string
+        default: ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database
+      top_n:
+        description: Console summary size
+        type: string
+        default: "10"
+      llm_top_n:
+        description: Max candidates analyzed by LLM
+        type: string
+        default: "30"
+  schedule:
+    - cron: "30 0 * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      PERIOD: ${{ github.event.inputs.period || 'daily' }}
+      USE_LLM: ${{ github.event.inputs.use_llm || 'true' }}
+      ENRICH_REPORT: ${{ github.event.inputs.enrich_report || 'true' }}
+      PUSHPLUS_ENABLED: ${{ github.event.inputs.pushplus || 'true' }}
+      FOCUS_TOPICS: ${{ github.event.inputs.focus_topics || 'ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database' }}
+      TOP_N: ${{ github.event.inputs.top_n || '10' }}
+      LLM_TOP_N: ${{ github.event.inputs.llm_top_n || '30' }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+      LLM_API_STYLE: ${{ vars.LLM_API_STYLE }}
+      LLM_API_BASE: ${{ vars.LLM_API_BASE }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_THINKING: ${{ vars.LLM_THINKING }}
+      LLM_TEMPERATURE: ${{ vars.LLM_TEMPERATURE }}
+      LLM_MAX_TOKENS: ${{ vars.LLM_MAX_TOKENS }}
+      LLM_TIMEOUT: ${{ vars.LLM_TIMEOUT }}
+      TOPICS_JSON: ${{ vars.TOPICS_JSON }}
+      SITE_BASE_URL: ${{ vars.SITE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run trend radar pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --period "$PERIOD"
+            --focus-topics "$FOCUS_TOPICS"
+            --top-n "$TOP_N"
+            --llm-top-n "$LLM_TOP_N"
+            --render
+          )
+          if [[ "$USE_LLM" == "true" ]]; then
+            args+=(--use-llm)
+          fi
+          if [[ "$ENRICH_REPORT" == "true" ]]; then
+            args+=(--enrich-report --enrich-overview)
+          fi
+          python -m github_ai_trend_radar.main run "${args[@]}"
+
+      - name: Build static site
+        run: python -m github_ai_trend_radar.main build-site --period "$PERIOD" --date latest
+
+      - name: Resolve full report URL
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_file="$(find site/reports -maxdepth 1 -name "*-${PERIOD}-report.html" | sort | tail -n 1)"
+          if [[ -z "$report_file" ]]; then
+            echo "No report html found for period=${PERIOD}" >&2
+            exit 1
+          fi
+          report_name="$(basename "$report_file")"
+          echo "url=${SITE_BASE_URL%/}/reports/${report_name}" >> "$GITHUB_OUTPUT"
+          echo "path=$report_file" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Upload debug artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trend-radar-runtime-artifacts
+          path: |
+            data/reports
+            data/snapshots
+          if-no-files-found: ignore
+
+      - name: PushPlus summary
+        if: ${{ env.PUSHPLUS_ENABLED == 'true' && env.PUSHPLUS_TOKEN != '' }}
+        run: >
+          python -m github_ai_trend_radar.main push
+          --period "$PERIOD"
+          --date latest
+          --channel pushplus
+          --full-report-url "${{ steps.report.outputs.url }}"
