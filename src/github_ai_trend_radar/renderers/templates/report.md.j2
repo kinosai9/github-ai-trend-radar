@@ -36,6 +36,9 @@
 
 - 元信息：{% if item.language is defined %}{{ item.language }} · {% endif %}{% if item.stars is defined %}{{ item.stars }} Star · {% endif %}{% if item.forks is defined %}{{ item.forks }} Fork · {% endif %}{% if item.pushed_at is defined %}最近更新 {{ item.pushed_at }} · {% endif %}来源 {{ item.source_hits | join(", ") if item.source_hits is defined else "未提供" }}{% if item.matched_focus_topics is defined %} · 主题 {{ item.matched_focus_topics | join(", ") }}{% endif %}
 
+{% if item.maturity_label is defined %}- 成熟度：{{ item.maturity_label }}{% if item.quality_tip is defined %}；{{ item.quality_tip }}{% endif %}
+{% endif %}
+
 - 分数：趋势 {{ item.trend_score | default("未提供", true) }} · 价值 {{ item.value_score | default("未提供", true) }} · 雷达 {{ item.radar_score | default("未提供", true) }}{% if item.llm_adjusted_score is defined %} · LLM {{ item.llm_adjusted_score }}{% endif %}
 
 - 分析来源：{{ item.analysis_source | default("规则评分", true) }}

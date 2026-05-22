@@ -297,20 +297,34 @@ def build_report_sections(candidates: list[dict[str, Any]], top_n: dict[str, Any
         return selected
 
     breakout = pick(
-        lambda item: item.get("radar_bucket") == "breakout"
-        and item.get("recommended_action") != "ignore"
-        and not _is_noise_summary(item),
+        lambda item: (
+            item.get("radar_bucket") == "breakout"
+            and item.get("recommended_action") != "ignore"
+            and not _is_noise_summary(item)
+            and item.get("topic_match_confidence") != "weak"
+            and _quality_level(item) != "block"
+        ),
         _limit(top_n, "breakout"),
     )
     deep_research = pick(
-        lambda item: item.get("recommended_action") in {"deep_research", "try_locally", "read"}
-        and not _is_noise_summary(item),
+        lambda item: (
+            item.get("recommended_action") in {"deep_research", "try_locally", "read"}
+            and not _is_noise_summary(item)
+            and _quality_level(item) in {"pass", "warn"}
+            and (_quality_level(item) != "warn" or item.get("recommended_action") in {"read", "deep_research"})
+        ),
         _limit(top_n, "deep_research"),
     )
     long_term = pick(
-        lambda item: item.get("radar_bucket") in {"valuable_mature", "watchlist"}
-        and item.get("recommended_action") in {"watch", "read"}
-        and not _is_noise_summary(item),
+        lambda item: (
+            item.get("radar_bucket") in {"valuable_mature", "watchlist"}
+            and item.get("recommended_action") in {"watch", "read"}
+            and not _is_noise_summary(item)
+            and (
+            _quality_level(item) != "block"
+            or ("ossinsight" in item.get("source_hits", []) and item.get("topic_match_confidence") == "strong")
+            )
+        ),
         min(_limit(top_n, "valuable_mature"), _limit(top_n, "watchlist")),
     )
     noise = [
@@ -328,6 +342,11 @@ def build_report_sections(candidates: list[dict[str, Any]], top_n: dict[str, Any
     }
 
 
+def _quality_level(item: dict[str, Any]) -> str:
+    gate = item.get("quality_gate", {}) if isinstance(item.get("quality_gate"), dict) else {}
+    return str(gate.get("level") or "pass")
+
+
 def format_period_label(period: str) -> str:
     return PERIOD_LABELS.get(period, period.title())
 
@@ -339,6 +358,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     noise = candidate.get("noise", {}) if isinstance(candidate.get("noise"), dict) else {}
     llm_analysis = candidate.get("llm_analysis", {}) if isinstance(candidate.get("llm_analysis"), dict) else {}
     llm_scores = candidate.get("llm_scores", {}) if isinstance(candidate.get("llm_scores"), dict) else {}
+    quality_gate = candidate.get("quality_gate", {}) if isinstance(candidate.get("quality_gate"), dict) else {}
 
     summary = _build_summary(candidate, llm_analysis)
     action = _first_text(candidate.get("final_recommended_action"), candidate.get("recommended_action_rule_based"))
@@ -403,9 +423,37 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
             },
             "llm_noise_reason": _safe_text(llm_analysis.get("llm_noise_reason")),
             "llm_scores": llm_scores,
+            "quality_gate": quality_gate,
+            "maturity_label": _maturity_label(quality_gate),
+            "quality_tip": _quality_tip(quality_gate),
             "report_enrichment_status": _safe_text(candidate.get("report_enrichment_status")) or "skipped",
         }
     )
+
+
+def _maturity_label(gate: dict[str, Any]) -> str:
+    signals = gate.get("maturity_signals", {}) if isinstance(gate.get("maturity_signals"), dict) else {}
+    level = str(gate.get("level") or "pass")
+    if level == "block":
+        return "信息不足"
+    positive = sum(bool(signals.get(key)) for key in ("has_readme", "has_license", "has_installation", "has_examples", "has_docs"))
+    if positive >= 4:
+        return "成熟"
+    if positive >= 2:
+        return "可试用"
+    return "早期"
+
+
+def _quality_tip(gate: dict[str, Any]) -> str:
+    level = str(gate.get("level") or "pass")
+    reasons = _safe_list(gate.get("reasons"))
+    if level == "pass":
+        return "工程信号较完整，可进一步深研"
+    if level == "warn":
+        return "早期项目，建议先观察；" + "；".join(str(reason) for reason in reasons[:2])
+    if level == "block":
+        return "README 信息或主题证据不足，建议先过滤或低优先级观察"
+    return ""
 
 
 def _build_summary(candidate: dict[str, Any], llm_analysis: dict[str, Any]) -> str:

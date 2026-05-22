@@ -187,6 +187,7 @@ GitHub Actions 正常日跑仍建议先 `run --use-llm --render` 生成当天报
 python -m github_ai_trend_radar.main build-site --period daily --date latest
 python -m github_ai_trend_radar.main build-site --period weekly --date latest
 python -m github_ai_trend_radar.main build-site --all
+python -m github_ai_trend_radar.main build-site --period daily --date latest --keep-daily 60 --keep-weekly 8 --keep-monthly 12
 ```
 
 `build-site` 会从 `data/reports/` 读取 `report.html`、`report.md` 和 `report-enriched.json`，复制到 `site/reports/`，并生成：
@@ -195,6 +196,14 @@ python -m github_ai_trend_radar.main build-site --all
 - `site/reports.json`
 
 如果某个周期没有报告，例如暂时没有 monthly，会自动跳过，不会让命令失败。
+
+Pages 只用于展示近期归档，不作为永久数据库。默认保留：
+
+- 日报：最近 60 天
+- 周报：最近 8 周
+- 月报：最近 12 个月
+
+首页只展示最新日报、最新周报、最新月报，以及最近 14 篇日报、4 篇周报、6 篇月报。趋势雷达关注近期变化，日报超过 60 天后价值会快速下降；更长期的数据后续应通过 watchlist、research archive 或私有数据仓库沉淀。
 
 ## PushPlus 摘要推送
 
@@ -242,6 +251,14 @@ python -m github_ai_trend_radar.main push --period daily --date latest --channel
 6. 发布 GitHub Pages
 7. 通过 PushPlus 推送摘要和完整报告链接
 
+定时触发周期：
+
+- 日报：北京时间每天 08:45，对应 UTC `45 0 * * *`
+- 周报：北京时间每周日 21:30，对应 UTC `30 13 * * 0`
+- 月报：北京时间每月 1 日 09:30，对应 UTC `30 1 1 * *`
+
+GitHub Actions schedule 使用 UTC，并且可能存在数分钟到十几分钟延迟。workflow 会根据 `github.event.schedule` 自动解析 period；手动触发时 `inputs.period` 优先。
+
 建议配置 GitHub Pages：
 
 1. 进入仓库 Settings。
@@ -285,14 +302,37 @@ https://username.github.io/github-ai-trend-radar
 本地对应验证命令：
 
 ```bash
-python -m github_ai_trend_radar.main run --period daily --use-llm --render --enrich-report --enrich-overview
-python -m github_ai_trend_radar.main build-site --period daily --date latest
+python -m github_ai_trend_radar.main resolve-run-context --event-name schedule --schedule "45 0 * * *"
+python -m github_ai_trend_radar.main run --period daily --use-llm --render --enrich-report --enrich-overview --llm-top-n 5 --report-enrich-top-n 5
+python -m github_ai_trend_radar.main build-site --period daily --date latest --keep-daily 60 --keep-weekly 8 --keep-monthly 12
 python -m github_ai_trend_radar.main push --period daily --date latest --channel pushplus --dry-run
 ```
 
-Actions 会同时上传 `data/reports` 和 `data/snapshots` 为 workflow artifact，便于排查采集、评分、渲染或推送问题。
+Actions 会上传 `data/snapshots`、`data/reports/*run-summary.json` 和 `data/reports/*report-enriched.json` 为 workflow artifact，便于排查采集、评分、渲染或推送问题。debug artifacts 默认保留 7 天，不长期保留所有 raw API snapshot。
+
+资源限制提醒：
+
+- GitHub-hosted runner 单 job 最长 6 小时，本项目 workflow 设置为 45 分钟超时。
+- GitHub Pages 站点大小有软限制，建议控制在 1GB 以内。
+- Pages 部署超过 10 分钟可能超时。
+- PushPlus 只推摘要和完整报告链接，不推完整 HTML。
 
 如果报告包含内部业务判断、客户信息、私有仓库或非公开策略，不要发布到公开 GitHub Pages；应改为私有 artifact、本地查看或受控静态站点。
+
+## 质量闸门与报告级总结
+
+规则评分之后会执行质量闸门，避免低 Star、低成熟度、README 信息不足但描述好听的项目直接进入“趋势突破”或“值得深研”。不是高热项目都会进入深研；低成熟度项目会被标记为早期观察，深研建议需要同时满足趋势、主题和工程信号。
+
+质量闸门会记录：
+
+- README 是否充分
+- 是否有 license
+- 是否包含安装、示例、文档、测试信号
+- 最近是否更新
+- 是否归档或 fork
+- 是否多源命中或来自 OSSInsight
+
+报告级 LLM 总结只调用一次，仅用于优化顶部“本期判断”的表达质量，不改变项目排序、bucket 或推荐动作。如果没有 LLM key 或调用失败，会自动 fallback 到规则判断，并在 `run-summary.json` 中记录状态。
 
 ## Troubleshooting
 

@@ -142,8 +142,10 @@ a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor
       {% for source in item.source_hits | default([]) %}<span class="tag">{{ source }}</span>{% endfor %}
       {% for topic in item.matched_focus_topics | default([]) %}<span class="tag">{{ topic }}</span>{% endfor %}
       {% if item.topic_match_confidence is defined %}<span class="tag">主题置信度：{{ item.topic_match_confidence }}</span>{% endif %}
+      {% if item.maturity_label is defined %}<span class="tag">成熟度：{{ item.maturity_label }}</span>{% endif %}
       <span class="tag">分析来源：{{ item.analysis_source | default("规则评分", true) }}</span>
     </div>
+    {% if item.quality_tip is defined %}<div class="info-line">质量提示：{{ item.quality_tip }}</div>{% endif %}
     <div class="info-line">
       {% if item.language is defined %}语言 {{ item.language }} · {% endif %}{% if item.stars is defined %}{{ item.stars }} Star · {% endif %}{% if item.forks is defined %}{{ item.forks }} Fork · {% endif %}{% if item.pushed_at is defined %}最近更新 {{ item.pushed_at }}{% endif %}
     </div>

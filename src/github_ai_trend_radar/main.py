@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import webbrowser
 from dataclasses import replace
@@ -27,6 +28,7 @@ from github_ai_trend_radar.processors.normalize import (
     normalize_candidate,
     split_repo_full_name,
 )
+from github_ai_trend_radar.processors.quality_gate import apply_quality_gate_to_payload
 from github_ai_trend_radar.processors.scoring import load_scoring_config, score_snapshot_payload
 from github_ai_trend_radar.push.pushplus import PushPlusConfig, send_pushplus
 from github_ai_trend_radar.renderers.html_ink import write_html_report
@@ -34,9 +36,9 @@ from github_ai_trend_radar.renderers.markdown import write_markdown_report
 from github_ai_trend_radar.renderers.pushplus_summary import full_report_url_from_env, write_pushplus_summary
 from github_ai_trend_radar.renderers.report_enrichment import (
     enrich_report_model,
-    enrich_report_overview,
     ensure_report_enrichment_status,
 )
+from github_ai_trend_radar.renderers.report_editorial import enrich_editorial_judgement
 from github_ai_trend_radar.renderers.report_model import (
     SnapshotNotFoundError,
     build_report_model,
@@ -44,6 +46,8 @@ from github_ai_trend_radar.renderers.report_model import (
     resolve_render_input,
 )
 from github_ai_trend_radar.site.build_site import build_site as build_static_site
+from github_ai_trend_radar.run_context import resolve_run_context as resolve_context
+from github_ai_trend_radar.run_summary import load_run_summary, write_run_summary
 from github_ai_trend_radar.storage.files import load_json, save_json, snapshot_path
 
 
@@ -396,6 +400,7 @@ def score(args: argparse.Namespace) -> int:
         topics_config=topics_config,
         source_snapshot=str(candidates_path),
     )
+    payload = apply_quality_gate_to_payload(payload)
     scored_path = snapshot_path(args.snapshot_dir, args.period, "scored")
     save_json(payload, scored_path)
 
@@ -431,6 +436,7 @@ def score(args: argparse.Namespace) -> int:
             mature_n=args.llm_mature_n,
             watchlist_n=args.llm_watchlist_n,
         )
+        llm_payload = apply_quality_gate_to_payload(llm_payload)
         llm_path = snapshot_path(args.snapshot_dir, args.period, "llm-scored")
         save_json(llm_payload, llm_path)
         llm_stats = llm_payload["llm"]
@@ -515,10 +521,11 @@ def render(args: argparse.Namespace) -> int:
             snapshot_kind=resolved.kind,
         )
 
+    report_enrich_top_n = int(getattr(args, "report_enrich_top_n", 10) or 10)
     if getattr(args, "enrich_report", False) and not resolved.is_report_model:
-        report = enrich_report_model(report, LLMClient(LLMConfig.from_env()), max_items=10)
+        report = enrich_report_model(report, LLMClient(LLMConfig.from_env()), max_items=report_enrich_top_n)
     if getattr(args, "enrich_overview", False):
-        report = enrich_report_overview(report, LLMClient(LLMConfig.from_env()))
+        report = enrich_editorial_judgement(report, LLMClient(LLMConfig.from_env()))
 
     output_format = getattr(args, "format", "all")
     md_path = _report_output_path(output_dir, args.period, "md", date_value=resolved.date.isoformat())
@@ -533,6 +540,13 @@ def render(args: argparse.Namespace) -> int:
         written_html = write_html_report(report, html_path)
     if (getattr(args, "enrich_report", False) and not resolved.is_report_model) or getattr(args, "enrich_overview", False):
         save_json(report, debug_path)
+    summary_path = write_run_summary(
+        output_dir=output_dir,
+        period=args.period,
+        report_date=resolved.date.isoformat(),
+        report=report,
+        status=_status_from_report(report),
+    )
 
     console.print(f"resolved date: {resolved.date.isoformat()}")
     console.print(f"selected input file: {resolved.path}")
@@ -552,6 +566,7 @@ def render(args: argparse.Namespace) -> int:
         console.print(f"HTML output: {written_html}")
     if (getattr(args, "enrich_report", False) and not resolved.is_report_model) or getattr(args, "enrich_overview", False):
         console.print(f"Report model debug output: {debug_path}")
+    console.print(f"Run summary output: {summary_path}")
     console.print(f"bucket_counts: {report['summary']['bucket_counts']}")
     console.print(f"main_card_count: {report['summary'].get('main_card_count', 0)}")
     console.print(f"report enrichment status: {report.get('report_enrichment', {})}")
@@ -568,8 +583,26 @@ def render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _status_from_report(report: dict[str, object]) -> str:
+    llm = report.get("llm", {}) if isinstance(report.get("llm"), dict) else {}
+    overview = report.get("overview_enrichment", {}) if isinstance(report.get("overview_enrichment"), dict) else {}
+    if llm.get("failed_count") or llm.get("api_failed_count") or overview.get("failed"):
+        return "partial_success"
+    return "success"
+
+
 def doctor(args: argparse.Namespace) -> int:
     return run_doctor(timeout=args.timeout, console=console, llm=args.llm)
+
+
+def resolve_run_context(args: argparse.Namespace) -> int:
+    context = resolve_context(
+        event_name=getattr(args, "event_name", None),
+        schedule=getattr(args, "schedule", None),
+        manual_period=getattr(args, "manual_period", None),
+    )
+    console.print(json.dumps(context.__dict__, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _load_report_for_delivery(args: argparse.Namespace, *, output_dir: Path) -> tuple[dict[str, object], object]:
@@ -589,6 +622,9 @@ def _load_report_for_delivery(args: argparse.Namespace, *, output_dir: Path) -> 
             source_snapshot=resolved.path,
             snapshot_kind=resolved.kind,
         )
+    summary = load_run_summary(output_dir, args.period, resolved.date.isoformat())
+    if summary:
+        report["run_summary"] = summary
     return report, resolved
 
 
@@ -627,6 +663,15 @@ def push(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         console.print(f"[green]dry-run: PushPlus API not called.[/green] title={title}")
+        write_run_summary(
+            output_dir=output_dir,
+            period=args.period,
+            report_date=resolved.date.isoformat(),
+            report=report,
+            status="success",
+            pages_url=full_report_url if full_report_is_url else "",
+            pushplus_status="skipped",
+        )
         return 0
 
     content = summary_path.read_text(encoding="utf-8")
@@ -637,11 +682,14 @@ def push(args: argparse.Namespace) -> int:
     )
     if result.skipped:
         console.print(f"[yellow]PushPlus skipped:[/yellow] {result.error}")
+        write_run_summary(output_dir=output_dir, period=args.period, report_date=resolved.date.isoformat(), report=report, status="partial_success", pages_url=full_report_url if full_report_is_url else "", pushplus_status="skipped", warnings=[result.error or "PushPlus skipped"])
         return 1 if args.fail_on_push_error else 0
     if result.ok:
         console.print(f"[green]PushPlus sent.[/green] status={result.status_code} body={result.response_text[:200]}")
+        write_run_summary(output_dir=output_dir, period=args.period, report_date=resolved.date.isoformat(), report=report, status="success", pages_url=full_report_url if full_report_is_url else "", pushplus_status="sent")
         return 0
     console.print(f"[red]PushPlus failed.[/red] status={result.status_code} error={result.error} body={result.response_text[:200]}")
+    write_run_summary(output_dir=output_dir, period=args.period, report_date=resolved.date.isoformat(), report=report, status="partial_success", pages_url=full_report_url if full_report_is_url else "", pushplus_status="failed", errors=[result.error or "PushPlus failed"])
     return 1 if args.fail_on_push_error else 0
 
 
@@ -652,6 +700,9 @@ def build_site(args: argparse.Namespace) -> int:
         period=getattr(args, "period", None),
         date_value=getattr(args, "date", None),
         all_periods=getattr(args, "all", False),
+        keep_daily=getattr(args, "keep_daily", 60),
+        keep_weekly=getattr(args, "keep_weekly", 8),
+        keep_monthly=getattr(args, "keep_monthly", 12),
     )
     console.print(f"site_dir: {result.site_dir}")
     console.print(f"reports_dir: {result.reports_dir}")
@@ -708,6 +759,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--no-enrich-report", dest="enrich_report", action="store_false", help="Disable report-only LLM enrichment.")
     run_parser.add_argument("--enrich-overview", dest="enrich_overview", action="store_true", help="Use LLM overview enrichment when --render is used.")
     run_parser.add_argument("--no-enrich-overview", dest="enrich_overview", action="store_false", help="Disable overview enrichment.")
+    run_parser.add_argument("--report-enrich-top-n", type=int, default=10, help="Maximum displayed projects enriched for the report.")
     run_parser.set_defaults(enrich_report=False)
     run_parser.set_defaults(enrich_overview=False)
     run_parser.set_defaults(handler=run)
@@ -762,6 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--no-enrich-report", dest="enrich_report", action="store_false", help="Disable report-only LLM enrichment.")
     render_parser.add_argument("--enrich-overview", dest="enrich_overview", action="store_true", help="Use LLM to rewrite top observations as editorial judgements.")
     render_parser.add_argument("--no-enrich-overview", dest="enrich_overview", action="store_false", help="Disable overview enrichment.")
+    render_parser.add_argument("--report-enrich-top-n", type=int, default=10, help="Maximum displayed projects enriched for the report.")
     render_parser.set_defaults(enrich_report=False)
     render_parser.set_defaults(enrich_overview=False)
     render_parser.add_argument("--top-breakout", type=int, default=None)
@@ -788,6 +841,16 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument("--retries", type=int, default=2)
     push_parser.set_defaults(handler=push)
 
+    context_parser = subparsers.add_parser(
+        "resolve-run-context",
+        help="Resolve GitHub Actions event context into a report period.",
+        description="Resolve GitHub Actions event context into a report period.",
+    )
+    context_parser.add_argument("--event-name", default=None)
+    context_parser.add_argument("--schedule", default=None)
+    context_parser.add_argument("--manual-period", choices=("daily", "weekly", "monthly"), default=None)
+    context_parser.set_defaults(handler=resolve_run_context)
+
     site_parser = subparsers.add_parser(
         "build-site",
         help="Build a static GitHub Pages site from rendered reports.",
@@ -798,6 +861,9 @@ def build_parser() -> argparse.ArgumentParser:
     site_parser.add_argument("--all", action="store_true", help="Copy the latest available report for every period.")
     site_parser.add_argument("--reports-dir", default="data/reports")
     site_parser.add_argument("--site-dir", default="site")
+    site_parser.add_argument("--keep-daily", type=int, default=60)
+    site_parser.add_argument("--keep-weekly", type=int, default=8)
+    site_parser.add_argument("--keep-monthly", type=int, default=12)
     site_parser.set_defaults(handler=build_site)
 
     for name, help_text in commands.items():

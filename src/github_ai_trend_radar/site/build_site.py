@@ -31,6 +31,9 @@ def build_site(
     period: str | None = None,
     date_value: str | date | None = None,
     all_periods: bool = False,
+    keep_daily: int = 60,
+    keep_weekly: int = 8,
+    keep_monthly: int = 12,
 ) -> SiteBuildResult:
     """Copy generated reports to ``site/reports`` and write site indexes."""
 
@@ -43,7 +46,8 @@ def build_site(
     for resolved in selected:
         copied.append(_copy_report_bundle(source_root, target_reports, resolved))
 
-    all_reports = _discover_site_reports(target_reports)
+    _prune_site_reports(target_reports, {"daily": keep_daily, "weekly": keep_weekly, "monthly": keep_monthly})
+    all_reports = _limit_index_reports(_discover_site_reports(target_reports))
     reports_json_path = save_json(all_reports, target_root / "reports.json")
     index_path = _write_index(target_root / "index.html", all_reports)
     return SiteBuildResult(
@@ -53,6 +57,30 @@ def build_site(
         reports_json_path=reports_json_path,
         copied_reports=copied,
     )
+
+
+def _prune_site_reports(target_reports: Path, keep: dict[str, int]) -> None:
+    reports = _discover_site_reports(target_reports)
+    keep_names: set[str] = set()
+    for period in REPORT_PERIODS:
+        selected = [item for item in reports if item.get("period") == period][: max(0, int(keep.get(period, 0)))]
+        for item in selected:
+            for key in ("html", "markdown", "report_model"):
+                value = item.get(key)
+                if value:
+                    keep_names.add(Path(str(value)).name)
+    for path in target_reports.glob("*"):
+        if path.is_file() and path.name not in keep_names:
+            path.unlink()
+
+
+def _limit_index_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    limits = {"daily": 14, "weekly": 4, "monthly": 6}
+    result: list[dict[str, Any]] = []
+    for period in REPORT_PERIODS:
+        result.extend([item for item in reports if item.get("period") == period][: limits[period]])
+    result.sort(key=lambda item: (item["date"], _period_sort_value(str(item["period"]))), reverse=True)
+    return result
 
 
 def infer_site_base_url(*, repository_owner: str | None, repository_name: str | None) -> str:
@@ -73,17 +101,41 @@ def _select_reports(
     for item_period in periods:
         try:
             if date_value == "latest" or date_value is None:
-                resolved = find_latest_snapshot(item_period, [source_root])
-            else:
-                day = date.fromisoformat(date_value) if isinstance(date_value, str) else date_value
-                path = source_root / f"{day.isoformat()}-{item_period}-report-enriched.json"
-                if not path.exists():
-                    continue
-                resolved = ResolvedSnapshot(item_period, day, path, "report-enriched", True)
-            selected.append(resolved)
+                selected.extend(_all_report_models_for_period(source_root, item_period))
+                continue
+            day = date.fromisoformat(date_value) if isinstance(date_value, str) else date_value
+            path = source_root / f"{day.isoformat()}-{item_period}-report-enriched.json"
+            if not path.exists():
+                continue
+            selected.append(ResolvedSnapshot(item_period, day, path, "report-enriched", True))
         except FileNotFoundError:
             continue
     return selected
+
+
+def _all_report_models_for_period(source_root: Path, period: str) -> list[ResolvedSnapshot]:
+    resolved: list[ResolvedSnapshot] = []
+    for path in source_root.glob(f"*-{period}-report-enriched.json"):
+        day = _date_from_report_model_name(path.name, period)
+        if day:
+            resolved.append(ResolvedSnapshot(period, day, path, "report-enriched", True))
+    if not resolved:
+        try:
+            return [find_latest_snapshot(period, [source_root])]
+        except FileNotFoundError:
+            return []
+    resolved.sort(key=lambda item: item.date, reverse=True)
+    return resolved
+
+
+def _date_from_report_model_name(name: str, period: str) -> date | None:
+    suffix = f"-{period}-report-enriched.json"
+    if not name.endswith(suffix):
+        return None
+    try:
+        return date.fromisoformat(name[:10])
+    except ValueError:
+        return None
 
 
 def _copy_report_bundle(source_root: Path, target_reports: Path, resolved: ResolvedSnapshot) -> dict[str, Any]:

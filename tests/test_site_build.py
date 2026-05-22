@@ -70,6 +70,38 @@ def test_full_report_url_inference():
     )
 
 
+def test_build_site_prunes_retention_by_period(tmp_path):
+    reports = tmp_path / "reports"
+    site = tmp_path / "site"
+    reports.mkdir()
+    for day in range(1, 6):
+        _write_report_bundle(reports, f"2026-05-0{day}", "daily")
+
+    build_site(reports_dir=reports, site_dir=site, all_periods=True, keep_daily=2, keep_weekly=8, keep_monthly=12)
+
+    html_files = sorted(path.name for path in (site / "reports").glob("*-daily-report.html"))
+    assert html_files == ["2026-05-04-daily-report.html", "2026-05-05-daily-report.html"]
+
+
+def test_index_limits_recent_reports(tmp_path):
+    reports = tmp_path / "reports"
+    site = tmp_path / "site"
+    reports.mkdir()
+    for day in range(1, 20):
+        _write_report_bundle(reports, f"2026-05-{day:02d}", "daily")
+    for day in range(1, 8):
+        _write_report_bundle(reports, f"2026-04-{day:02d}", "weekly")
+    for month in range(1, 9):
+        _write_report_bundle(reports, f"2026-{month:02d}-01", "monthly")
+
+    build_site(reports_dir=reports, site_dir=site, all_periods=True)
+    payload = json.loads((site / "reports.json").read_text(encoding="utf-8"))
+
+    assert sum(1 for item in payload if item["period"] == "daily") == 14
+    assert sum(1 for item in payload if item["period"] == "weekly") == 4
+    assert sum(1 for item in payload if item["period"] == "monthly") == 6
+
+
 def test_build_site_command_writes_site(tmp_path):
     reports = tmp_path / "reports"
     site = tmp_path / "site"

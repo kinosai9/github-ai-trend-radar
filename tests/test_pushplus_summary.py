@@ -24,6 +24,7 @@ def _report():
                 for i in range(3)
             ],
         },
+        "run_summary": {"status": "partial_success"},
     }
 
 
@@ -58,3 +59,8 @@ def test_summary_html_is_compact_without_full_report_css():
     assert "<script" not in html
     assert "<style" not in html
     assert "--ink" not in html
+
+
+def test_pushplus_summary_contains_run_status():
+    html = render_pushplus_summary(_report(), full_report_url="local.html", full_report_is_url=False)
+    assert "运行状态：部分成功" in html

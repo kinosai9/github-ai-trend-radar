@@ -134,6 +134,43 @@ def test_enrich_overview_without_key_keeps_statistical_notes_and_adds_editorial_
     assert "ai_agent(118)" not in enriched["summary"]["top_observations"][0]
 
 
+def test_report_level_llm_summary_success_replaces_rule_judgements():
+    class Client:
+        available = True
+        model = "fake"
+
+        def complete_json(self, messages):
+            return type(
+                "R",
+                (),
+                {
+                    "ok": True,
+                    "content": '{"editorial_judgements":["MCP 工具链开始从插件能力转向工程接口，企业应关注权限和可观测性。","Coding Agent 方向继续贴近真实研发流程，但成熟度差异仍需通过 README 复核。","RAG 与知识库项目更强调私有化落地，短期适合做小范围验证。"]}',
+                },
+            )()
+
+    report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
+    enriched = enrich_report_overview(report, Client())
+
+    assert enriched["overview_enrichment"]["ok"] is True
+    assert enriched["summary"]["top_observations"][0].startswith("MCP 工具链")
+
+
+def test_report_level_llm_summary_failure_falls_back():
+    class Client:
+        available = True
+        model = "fake"
+
+        def complete_json(self, messages):
+            return type("R", (), {"ok": False, "content": ""})()
+
+    report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
+    enriched = enrich_report_overview(report, Client())
+
+    assert enriched["overview_enrichment"]["failed"] is True
+    assert enriched["overview_enrichment"]["fallback"] is True
+
+
 def test_markdown_uses_chinese_intelligence_sections():
     snapshot = {"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}
     report = build_report_model(snapshot, load_report_config("missing-config-dir"))

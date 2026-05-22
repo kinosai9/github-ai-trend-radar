@@ -30,7 +30,9 @@ def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, ful
     title = f"{report.get('title', 'GitHub AI 开源趋势雷达')} · {report.get('period_label', '')}".strip()
     stats = report.get("stats", {}) if isinstance(report.get("stats"), dict) else {}
     summary = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
+    run_summary = report.get("run_summary", {}) if isinstance(report.get("run_summary"), dict) else {}
     coverage = summary.get("main_llm_coverage", {}) if isinstance(summary.get("main_llm_coverage"), dict) else {}
+    status_label = {"success": "成功", "partial_success": "部分成功", "failed": "失败"}.get(str(run_summary.get("status", "success")), "成功")
     parts = [
         "<div style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:#10233f;line-height:1.65;'>",
         f"<h2 style='margin:0 0 12px;font-size:20px;'>{_e(title)}</h2>",
@@ -53,6 +55,7 @@ def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, ful
         f"候选数：{_e(stats.get('total_candidates', ''))} · "
         f"多源命中：{_e(summary.get('multi_source_candidates', ''))} · "
         f"主区 LLM 覆盖：{_e(coverage.get('analyzed', 0))}/{_e(coverage.get('total', 0))} · "
+        f"运行状态：{_e(status_label)} · "
         f"生成时间：{_e(report.get('generated_at', ''))}</p>"
     )
     parts.append("</div>")
