@@ -310,6 +310,7 @@ doctor 会检查 Python 和 `requests` 版本，显示 `HTTP_PROXY`、`HTTPS_PRO
 - GitHub 和 OSSInsight 都超时、DNS 失败或连接失败：优先检查本地网络、代理、公司网络策略或 CI 网络出口。
 - GitHub 返回 `401` 或 `403`：检查 `GH_PAT` / `GITHUB_TOKEN` 是否存在、是否有效、是否触发 rate limit；doctor 只显示 token 是否存在，不会打印值。
 - OSSInsight 页面 `https://ossinsight.io/trending` 可访问，但 API 失败：更可能是 API endpoint 或参数组合问题。
+- GitHub Actions 的 `Configure Pages` 步骤报 `Get Pages site failed` / `Not Found`：先确认仓库是 public，或账号计划支持 private Pages；确认 Settings → Pages → Source 是 GitHub Actions；确认 workflow 使用 `actions/configure-pages@v5` 并设置 `enablement: true`；确认 workflow permissions 包含 `pages: write` 和 `id-token: write`。
 
 Windows PowerShell 临时设置代理：
 
