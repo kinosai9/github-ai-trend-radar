@@ -1,0 +1,17 @@
+sources:
+  github:
+    trending:
+      enabled: true
+      languages:
+        - Python
+        - TypeScript
+      since:
+        - daily
+        - weekly
+    search:
+      enabled: false
+      sort: stars
+      order: desc
+  rss:
+    enabled: false
+    feeds: []

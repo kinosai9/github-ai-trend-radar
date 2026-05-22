@@ -1,0 +1,18 @@
+report:
+  title: "GitHub AI 开源趋势雷达"
+  language: "zh-CN"
+  top_n:
+    breakout: 5
+    deep_research: 5
+    valuable_mature: 3
+    watchlist: 3
+    noise: 5
+  show_noise_section: true
+  show_noise_cards: false
+  compact_noise_summary: true
+  show_raw_scores: false
+  show_debug_fields: false
+  min_items_for_section: 1
+  html_theme: "ink"
+  include_data_source_section: true
+  include_generation_metadata: true

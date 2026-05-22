@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="{{ report.language }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ report.title }} · {{ report.period_label }}</title>
+<style>
+:root {
+  --ink: #0a1f3d;
+  --ink-soft: #152a4a;
+  --paper: #f4f1ea;
+  --paper-cool: #eef1f3;
+  --paper-tint: #e4e8ec;
+  --line: rgba(10, 31, 61, .14);
+  --muted: rgba(10, 31, 61, .62);
+  --quiet: rgba(10, 31, 61, .46);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --serif: Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--ink); }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper-cool);
+  font-family: var(--sans);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor; }
+.page { max-width: 1120px; margin: 0 auto; padding: 28px 18px 56px; }
+.hero { min-height: 52vh; display: grid; align-content: center; gap: 22px; border-bottom: 1px solid var(--line); }
+.chrome, .meta, .tag, .score-label, .section-kicker, .source-list {
+  font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; font-size: 11px; color: var(--quiet);
+}
+.chrome { display: flex; justify-content: space-between; gap: 16px; }
+.hero h1 { margin: 0; max-width: 900px; font-family: var(--serif); font-size: clamp(44px, 10vw, 112px); line-height: .96; letter-spacing: 0; }
+.lead { max-width: 820px; font-family: var(--serif); font-size: clamp(17px, 2vw, 24px); color: var(--muted); }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.summary-cell { background: var(--paper); padding: 18px; min-height: 92px; }
+.summary-number { font-family: var(--serif); font-size: 34px; line-height: 1; }
+.summary-label { margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--quiet); }
+.judgement { margin: 28px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; max-width: 880px; }
+.judgement li { border-left: 2px solid var(--ink); padding-left: 14px; color: var(--muted); }
+.signal-notes { margin-top: 18px; max-width: 880px; color: var(--quiet); font-size: 12px; }
+.signal-notes summary { cursor: pointer; font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.signal-notes ol { margin: 8px 0 0; padding-left: 18px; }
+.section { padding: 48px 0 28px; border-bottom: 1px solid var(--line); }
+.section-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.section h2 { margin: 0; font-family: var(--serif); font-size: clamp(30px, 5vw, 60px); line-height: 1.05; }
+.section-kicker { margin-bottom: 8px; }
+.cards { display: grid; gap: 14px; }
+.card { background: rgba(244, 241, 234, .82); border: 1px solid var(--line); padding: 20px; }
+.card-head { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.repo-title { margin: 0; font-family: var(--serif); font-size: clamp(22px, 3vw, 34px); line-height: 1.15; }
+.repo-title a { border-bottom: 0; }
+.action { border: 1px solid currentColor; padding: 4px 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+.summary { margin: 14px 0 0; color: var(--muted); font-size: 15px; }
+.tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.tag { border: 1px solid rgba(10,31,61,.18); padding: 2px 7px; background: rgba(255,255,255,.25); }
+.info-line { margin-top: 14px; color: var(--quiet); font-size: 13px; }
+.score-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; color: var(--quiet); font-size: 13px; }
+.analysis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; margin-top: 16px; }
+.analysis-block h4 { margin: 0 0 5px; font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--quiet); }
+.analysis-block p, .analysis-block ul { margin: 0; color: var(--muted); font-size: 14px; }
+.analysis-block ul { padding-left: 18px; }
+.empty { color: var(--muted); border-left: 2px solid var(--line); padding-left: 14px; }
+.noise-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.noise-box { background: rgba(228, 232, 236, .7); border: 1px solid var(--line); padding: 16px; }
+.noise-box h3 { margin: 0 0 10px; font-family: var(--serif); font-size: 24px; }
+.noise-box ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.sources { padding: 40px 0 0; }
+.source-list { display: grid; gap: 8px; color: var(--muted); text-transform: none; letter-spacing: .04em; }
+.footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; color: var(--quiet); font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+@media (max-width: 780px) {
+  .page { padding: 20px 14px 42px; }
+  .hero { min-height: auto; padding: 52px 0 32px; }
+  .chrome, .section-header, .footer { display: block; }
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card { padding: 17px; }
+  .card-head { grid-template-columns: 1fr; }
+  .action { width: fit-content; }
+  .analysis, .noise-summary { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <section class="hero">
+    <div class="chrome">
+      <span>GitHub AI 开源趋势雷达 · 墨水风技术情报</span>
+      <span>{{ report.generated_at }}</span>
+    </div>
+    <div>
+      <div class="section-kicker">{{ report.period_label }} · {{ report.llm_status_label }}</div>
+      <h1>{{ report.title }}</h1>
+      <p class="lead">{{ report.summary.top_observations[0] }}</p>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-cell"><div class="summary-number">{{ report.stats.total_candidates }}</div><div class="summary-label">候选项目</div></div>
+      <div class="summary-cell"><div class="summary-number">{{ report.summary.bucket_counts.breakout }}</div><div class="summary-label">趋势突破</div></div>
+      <div class="summary-cell"><div class="summary-number">{{ report.sections.deep_research | length }}</div><div class="summary-label">值得深研</div></div>
+      <div class="summary-cell"><div class="summary-number">{{ report.summary.multi_source_candidates }}</div><div class="summary-label">多源命中</div></div>
+    </div>
+    <ul class="judgement">
+      {% for observation in report.summary.top_observations %}
+      <li>{{ observation }}</li>
+      {% endfor %}
+    </ul>
+    {% if report.summary.statistical_observations is defined and report.summary.statistical_observations %}
+    <details class="signal-notes">
+      <summary>统计信号补充</summary>
+      <ol>
+        {% for observation in report.summary.statistical_observations %}
+        <li>{{ observation }}</li>
+        {% endfor %}
+      </ol>
+    </details>
+    {% endif %}
+    <div class="meta">
+      数据快照：{{ report.snapshot_kind }}{% if report.model %} · 模型：{{ report.model }}{% endif %}
+      · 主区 LLM 分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
+      · LLM 报告补齐：{% if report.report_enrichment.enabled %}已启用{% else %}未启用{% endif %}
+    </div>
+  </section>
+
+  {% macro project_card(item) -%}
+  <article class="card">
+    <div class="card-head">
+      <h3 class="repo-title"><a href="{{ item.html_url }}" target="_blank" rel="noopener">{{ item.repo_full_name }}</a></h3>
+      {% if item.recommended_action_label is defined %}<div class="action">{{ item.recommended_action_label }}</div>{% endif %}
+    </div>
+    <p class="summary">{{ item.summary }}</p>
+    <div class="analysis">
+      <div class="analysis-block"><h4>关注原因</h4><p>{{ item.reason_to_watch }}</p></div>
+      <div class="analysis-block"><h4>企业/工程启发</h4><p>{{ item.engineering_takeaway }}</p></div>
+      {% if item.risks is defined and item.risks %}<div class="analysis-block"><h4>风险</h4><ul>{% for risk in item.risks %}<li>{{ risk }}</li>{% endfor %}</ul></div>{% endif %}
+    </div>
+    <div class="tags">
+      {% for source in item.source_hits | default([]) %}<span class="tag">{{ source }}</span>{% endfor %}
+      {% for topic in item.matched_focus_topics | default([]) %}<span class="tag">{{ topic }}</span>{% endfor %}
+      {% if item.topic_match_confidence is defined %}<span class="tag">主题置信度：{{ item.topic_match_confidence }}</span>{% endif %}
+      <span class="tag">分析来源：{{ item.analysis_source | default("规则评分", true) }}</span>
+    </div>
+    <div class="info-line">
+      {% if item.language is defined %}语言 {{ item.language }} · {% endif %}{% if item.stars is defined %}{{ item.stars }} Star · {% endif %}{% if item.forks is defined %}{{ item.forks }} Fork · {% endif %}{% if item.pushed_at is defined %}最近更新 {{ item.pushed_at }}{% endif %}
+    </div>
+    <div class="score-row">
+      {% if item.trend_score is defined %}<span>趋势 {{ item.trend_score }}</span>{% endif %}
+      {% if item.value_score is defined %}<span>价值 {{ item.value_score }}</span>{% endif %}
+      {% if item.radar_score is defined %}<span>雷达 {{ item.radar_score }}</span>{% endif %}
+      {% if item.llm_adjusted_score is defined %}<span>LLM {{ item.llm_adjusted_score }}</span>{% endif %}
+    </div>
+  </article>
+  {%- endmacro %}
+
+  {% for bucket, title, kicker, empty in [
+    ("breakout", "趋势突破", "近期升温", "本期没有足够强的突破项，建议关注下方观察名单。"),
+    ("deep_research", "值得深研", "优先阅读", "本期暂无需要立即深研的项目。"),
+    ("long_term", "长期观察", "成熟价值", "本期暂无长期观察项目。")
+  ] %}
+  <section class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-kicker">{{ kicker }}</div>
+        <h2>{{ title }}</h2>
+      </div>
+      <div class="meta">{{ report.sections[bucket] | length }} 个项目</div>
+    </div>
+    {% if report.sections[bucket] %}
+    <div class="cards">
+      {% for item in report.sections[bucket] %}
+      {{ project_card(item) }}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">{{ empty }}</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  {% if report.config.show_noise_section %}
+  <section class="section">
+    <div class="section-header">
+      <div>
+        <div class="section-kicker">已过滤</div>
+        <h2>已过滤信号摘要</h2>
+      </div>
+      <div class="meta">{{ report.noise_summary.total }} 个信号</div>
+    </div>
+    <div class="noise-summary">
+      <div class="noise-box">
+        <h3>主要过滤原因</h3>
+        <ul>
+          {% for item in report.noise_summary.reason_counts %}
+          <li>{{ item.reason }}：{{ item.count }}</li>
+          {% else %}
+          <li>暂无明显噪声。</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="noise-box">
+        <h3>代表项目</h3>
+        <ul>
+          {% for item in report.noise_summary.examples %}
+          <li>{{ item.repo_full_name }}：{{ item.reason }} · {{ item.action }}</li>
+          {% else %}
+          <li>暂无代表项目。</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% if report.config.show_noise_cards %}
+    <div class="cards" style="margin-top:16px;">
+      {% for item in report.sections.noise %}
+      {{ project_card(item) }}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if report.config.include_data_source_section %}
+  <section class="sources">
+    <div class="section-kicker">方法说明</div>
+    <h2 class="repo-title">数据来源与评分说明</h2>
+    <div class="source-list">
+      {% for source in report.data_sources %}
+      <div>{{ source.name }} · {{ source.note }}{% if source.status %} · {{ source.status }}{% endif %}</div>
+      {% endfor %}
+      <div>规则评分使用趋势、价值、雷达分层；LLM 只做语义校准、技术价值解释和噪声复核，不是唯一排序依据。</div>
+    </div>
+  </section>
+  {% endif %}
+
+  <footer class="footer">
+    <span>{{ report.title }} · {{ report.period_label }}</span>
+    <span>生成工具：github-ai-trend-radar</span>
+  </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,95 @@
+# {{ report.title }} · {{ report.period_label }}
+
+- 生成时间：{{ report.generated_at }}
+- 数据窗口：{{ report.period_label }}
+- 数据快照：{{ report.snapshot_kind }}
+- 评分状态：{{ report.llm_status_label }}
+- 主区 LLM 分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
+- LLM 报告补齐：{% if report.report_enrichment.enabled %}已启用{% else %}未启用{% endif %}
+
+## 本期判断
+
+{% for observation in report.summary.top_observations %}
+{{ loop.index }}. {{ observation }}
+{% endfor %}
+
+{% if report.summary.statistical_observations is defined and report.summary.statistical_observations %}
+### 统计信号补充
+
+{% for observation in report.summary.statistical_observations %}
+- {{ observation }}
+{% endfor %}
+{% endif %}
+
+{% macro project_block(item) %}
+### {{ item.repo_full_name }}
+
+- 链接：[GitHub]({{ item.html_url }})
+- 推荐动作：{{ item.recommended_action_label | default("观察", true) }}
+- 一句话摘要：{{ item.summary }}
+- 入选原因：{{ item.reason_to_watch }}
+- 工程启发：{{ item.engineering_takeaway }}
+{% if item.risks is defined and item.risks %}
+
+- 风险：{{ item.risks | join("；") }}
+{% endif %}
+
+- 元信息：{% if item.language is defined %}{{ item.language }} · {% endif %}{% if item.stars is defined %}{{ item.stars }} Star · {% endif %}{% if item.forks is defined %}{{ item.forks }} Fork · {% endif %}{% if item.pushed_at is defined %}最近更新 {{ item.pushed_at }} · {% endif %}来源 {{ item.source_hits | join(", ") if item.source_hits is defined else "未提供" }}{% if item.matched_focus_topics is defined %} · 主题 {{ item.matched_focus_topics | join(", ") }}{% endif %}
+
+- 分数：趋势 {{ item.trend_score | default("未提供", true) }} · 价值 {{ item.value_score | default("未提供", true) }} · 雷达 {{ item.radar_score | default("未提供", true) }}{% if item.llm_adjusted_score is defined %} · LLM {{ item.llm_adjusted_score }}{% endif %}
+
+- 分析来源：{{ item.analysis_source | default("规则评分", true) }}
+{% endmacro %}
+
+## 趋势突破
+
+{% for item in report.sections.breakout %}
+{{ project_block(item) }}
+{% else %}
+本期没有足够强的突破项，建议关注下方观察名单。
+{% endfor %}
+
+## 值得深研
+
+{% for item in report.sections.deep_research %}
+{{ project_block(item) }}
+{% else %}
+本期暂无需要立即深研的项目。
+{% endfor %}
+
+## 长期观察
+
+{% for item in report.sections.long_term %}
+{{ project_block(item) }}
+{% else %}
+本期暂无长期观察项目。
+{% endfor %}
+
+{% if report.config.show_noise_section %}
+## 已过滤信号摘要
+
+- 过滤总数：{{ report.noise_summary.total }}
+{% if report.noise_summary.reason_counts %}
+- 主要原因：
+{% for item in report.noise_summary.reason_counts %}
+  - {{ item.reason }}：{{ item.count }}
+{% endfor %}
+{% endif %}
+{% if report.noise_summary.examples %}
+- 代表项目：
+{% for item in report.noise_summary.examples %}
+  - {{ item.repo_full_name }}：{{ item.reason }}，动作 {{ item.action }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if report.config.include_data_source_section %}
+## 数据来源与评分说明
+
+{% for source in report.data_sources %}
+
+- {{ source.name }}：{{ source.note }}{% if source.status %}（{{ source.status }}）{% endif %}
+{% endfor %}
+
+规则评分使用趋势、价值、雷达分层；LLM 只做语义校准、技术价值解释和噪声复核，不是唯一排序依据。
+{% endif %}

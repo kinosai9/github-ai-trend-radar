@@ -1,0 +1,79 @@
+weights:
+  growth_score: 0.25
+  topic_relevance_score: 0.20
+  engineering_quality_score: 0.15
+  novelty_score: 0.15
+  community_activity_score: 0.10
+  business_fit_score: 0.10
+  source_confidence_score: 0.05
+
+radar_weights:
+  daily:
+    trend_score: 0.60
+    value_score: 0.25
+    source_confidence_score: 0.15
+  weekly:
+    trend_score: 0.50
+    value_score: 0.35
+    source_confidence_score: 0.15
+  monthly:
+    trend_score: 0.40
+    value_score: 0.45
+    source_confidence_score: 0.15
+
+llm:
+  default_model: gpt-4o-mini
+  max_readme_chars: 8000
+
+noise_keywords:
+  - awesome
+  - awesome-list
+  - prompt collection
+  - prompts
+  - course
+  - tutorial
+  - learning
+  - demo only
+  - wrapper
+  - examples only
+  - wallpaper
+  - image collection
+  - clone
+  - boilerplate
+
+business_fit_keywords:
+  - enterprise
+  - self-hosted
+  - local deployment
+  - private deployment
+  - workflow
+  - knowledge base
+  - rag
+  - graph rag
+  - semantic search
+  - hybrid search
+  - mcp
+  - model context protocol
+  - coding agent
+  - agent memory
+  - tool use
+  - postgres
+  - pgvector
+  - neo4j
+  - langgraph
+  - n8n
+  - dify
+  - openai compatible
+  - api gateway
+
+engineering_positive_keywords:
+  - quickstart
+  - installation
+  - documentation
+  - examples
+  - tests
+  - docker
+  - cli
+  - api
+  - sdk
+  - self-hosted

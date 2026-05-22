@@ -1,0 +1,9 @@
+watchlist:
+  repositories:
+    - owner: example
+      name: example-ai-project
+      reason: Example repository entry for documentation only.
+  topics:
+    - agents
+    - rag
+    - inference

@@ -1,0 +1,130 @@
+topics:
+  ai_agent:
+    weight: 1.0
+    keywords:
+      - ai agent
+      - autonomous agent
+      - agent framework
+      - multi-agent
+      - agent memory
+      - tool use
+    github_topics:
+      - ai-agents
+      - agents
+      - llm-agent
+    include_queries:
+      - '"ai agent" OR "agent framework"'
+      - '"multi-agent" "llm"'
+      - '"agent memory" "llm"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  mcp:
+    weight: 1.0
+    keywords:
+      - model context protocol
+      - mcp server
+      - mcp client
+      - mcp tools
+    github_topics:
+      - mcp
+      - model-context-protocol
+      - mcp-server
+      - mcp-client
+    include_queries:
+      - '"model context protocol"'
+      - '"mcp server"'
+      - '"mcp client"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  coding_agent:
+    weight: 1.0
+    keywords:
+      - coding agent
+      - ai coding assistant
+      - code agent
+      - claude code
+      - codex
+      - cursor
+      - software engineering agent
+    github_topics:
+      - coding-agent
+      - ai-coding
+      - claude-code
+    include_queries:
+      - '"coding agent"'
+      - '"software engineering agent"'
+      - '"claude code"'
+      - '"ai coding assistant"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  rag_knowledge:
+    weight: 0.9
+    keywords:
+      - rag
+      - retrieval augmented generation
+      - graph rag
+      - knowledge base
+      - semantic search
+      - hybrid search
+      - embeddings
+    github_topics:
+      - rag
+      - vector-search
+      - knowledge-graph
+    include_queries:
+      - '"retrieval augmented generation"'
+      - '"graph rag"'
+      - '"knowledge base" "llm"'
+      - '"hybrid search" "rag"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  llm_infra:
+    weight: 0.85
+    keywords:
+      - llm inference
+      - model serving
+      - inference engine
+      - llm gateway
+      - prompt cache
+      - openai compatible
+    github_topics:
+      - llm
+      - inference
+      - model-serving
+    include_queries:
+      - '"llm inference"'
+      - '"model serving" "llm"'
+      - '"llm gateway"'
+      - '"openai compatible"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  vector_database:
+    weight: 0.8
+    keywords:
+      - vector database
+      - vector search
+      - embedding database
+      - ann search
+      - semantic search
+    github_topics:
+      - vector-database
+      - vector-search
+      - embeddings
+    include_queries:
+      - '"vector database"'
+      - '"vector search" "embedding"'
+      - '"semantic search" "database"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
