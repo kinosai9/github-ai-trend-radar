@@ -201,9 +201,21 @@ def apply_llm_parse_failed(candidate: dict[str, Any], *, raw_response: str, erro
     return enriched
 
 
-def apply_llm_api_failed(candidate: dict[str, Any], *, error: str) -> dict[str, Any]:
+def apply_llm_api_failed(
+    candidate: dict[str, Any],
+    *,
+    error: str,
+    error_type: str | None = None,
+    error_message: str | None = None,
+) -> dict[str, Any]:
     enriched = default_llm_fields(candidate, status="api_failed")
-    enriched["llm_debug"] = {"error": error}
+    enriched["llm_error_type"] = error_type or "unknown_error"
+    enriched["llm_error_message"] = error_message or error
+    enriched["llm_debug"] = {
+        "error": error,
+        "error_type": enriched["llm_error_type"],
+        "error_message": enriched["llm_error_message"],
+    }
     return enriched
 
 
@@ -251,7 +263,14 @@ def enrich_with_llm(
             )
         except Exception as exc:
             api_failed_count += 1
-            llm_candidates.append(apply_llm_api_failed(candidate, error=str(exc)))
+            llm_candidates.append(
+                apply_llm_api_failed(
+                    candidate,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
             continue
         if not response.ok:
             api_failed_count += 1
@@ -259,6 +278,8 @@ def enrich_with_llm(
                 apply_llm_api_failed(
                     candidate,
                     error=f"{response.error_type}: {response.error_message}",
+                    error_type=response.error_type,
+                    error_message=response.error_message,
                 )
             )
             continue

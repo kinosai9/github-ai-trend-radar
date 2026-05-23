@@ -118,6 +118,8 @@ def test_api_failed_does_not_block_snapshot():
     payload = enrich_with_llm(scored, client=client, scoring_config=CONFIG, source_snapshot="scored.json", llm_top_n=1)
 
     assert payload["candidates"][0]["llm_status"] == "api_failed"
+    assert payload["candidates"][0]["llm_error_type"] == "RuntimeError"
+    assert payload["candidates"][0]["llm_error_message"] == "boom"
     assert payload["llm"]["api_failed_count"] == 1
 
 

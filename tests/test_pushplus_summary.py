@@ -24,7 +24,10 @@ def _report():
                 for i in range(3)
             ],
         },
-        "run_summary": {"status": "partial_success"},
+        "run_summary": {
+            "status": "partial_success",
+            "llm": {"project_analysis": {"candidate_count": 20, "ok_count": 14, "failed_count": 6}},
+        },
     }
 
 
@@ -63,4 +66,5 @@ def test_summary_html_is_compact_without_full_report_css():
 
 def test_pushplus_summary_contains_run_status():
     html = render_pushplus_summary(_report(), full_report_url="local.html", full_report_is_url=False)
-    assert "运行状态：部分成功" in html
+    assert "运行状态：部分完成" in html
+    assert "项目级 LLM 14/20 成功" in html

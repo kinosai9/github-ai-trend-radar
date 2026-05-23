@@ -168,6 +168,15 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
+      - name: PushPlus summary
+        if: ${{ env.PUSHPLUS_ENABLED == 'true' && env.PUSHPLUS_TOKEN != '' }}
+        run: >
+          python -m github_ai_trend_radar.main push
+          --period "${{ steps.context.outputs.period }}"
+          --date latest
+          --channel pushplus
+          --full-report-url "${{ steps.report.outputs.url }}"
+
       - name: Upload debug artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -179,12 +188,3 @@ jobs:
             data/reports/*report-enriched.json
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: PushPlus summary
-        if: ${{ env.PUSHPLUS_ENABLED == 'true' && env.PUSHPLUS_TOKEN != '' }}
-        run: >
-          python -m github_ai_trend_radar.main push
-          --period "${{ steps.context.outputs.period }}"
-          --date latest
-          --channel pushplus
-          --full-report-url "${{ steps.report.outputs.url }}"

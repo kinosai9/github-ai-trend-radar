@@ -32,7 +32,7 @@ def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, ful
     summary = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
     run_summary = report.get("run_summary", {}) if isinstance(report.get("run_summary"), dict) else {}
     coverage = summary.get("main_llm_coverage", {}) if isinstance(summary.get("main_llm_coverage"), dict) else {}
-    status_label = {"success": "成功", "partial_success": "部分成功", "failed": "失败"}.get(str(run_summary.get("status", "success")), "成功")
+    status_label = _run_status_label(run_summary)
     parts = [
         "<div style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:#10233f;line-height:1.65;'>",
         f"<h2 style='margin:0 0 12px;font-size:20px;'>{_e(title)}</h2>",
@@ -86,6 +86,18 @@ def full_report_url_from_env(*, explicit_url: str | None, report_path: Path, res
         resolved_date=resolved_date,
         period=period,
     )
+
+
+def _run_status_label(run_summary: dict[str, Any]) -> str:
+    status = str(run_summary.get("status", "success"))
+    base = {"success": "成功", "partial_success": "部分完成", "failed": "失败"}.get(status, "成功")
+    project_llm = run_summary.get("llm", {}).get("project_analysis", {}) if isinstance(run_summary.get("llm"), dict) else {}
+    candidate_count = project_llm.get("candidate_count")
+    ok_count = project_llm.get("ok_count")
+    failed_count = project_llm.get("failed_count") or project_llm.get("api_failed_count")
+    if status == "partial_success" and candidate_count:
+        return f"{base}（项目级 LLM {ok_count}/{candidate_count} 成功，失败 {failed_count} 个，报告已生成）"
+    return base
 
 
 def _projects(title: str, projects: list[dict[str, Any]], *, show_action: bool) -> str:
