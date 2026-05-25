@@ -134,6 +134,12 @@ def _add_common_options(parser: argparse.ArgumentParser) -> None:
         help="Maximum candidates to analyze with LLM.",
     )
     parser.add_argument(
+        "--llm-timeout",
+        type=float,
+        default=None,
+        help="LLM request timeout in seconds. Defaults to LLM_TIMEOUT when omitted.",
+    )
+    parser.add_argument(
         "--llm-breakout-n",
         type=int,
         default=15,
@@ -427,7 +433,10 @@ def score(args: argparse.Namespace) -> int:
     )
 
     if args.use_llm:
-        client = LLMClient(replace(LLMConfig.from_env(), timeout=args.timeout))
+        llm_config = LLMConfig.from_env()
+        if args.llm_timeout is not None:
+            llm_config = replace(llm_config, timeout=args.llm_timeout)
+        client = LLMClient(llm_config)
         if not client.available:
             console.print("[yellow]LLM_API_KEY is missing; writing LLM snapshot with rule-based fallback.[/yellow]")
         llm_payload = enrich_with_llm(
@@ -574,6 +583,10 @@ def render(args: argparse.Namespace) -> int:
         console.print(f"Report model debug output: {debug_path}")
     console.print(f"Run summary output: {summary_path}")
     console.print(f"Watchlist queue output: {queue_path}")
+    issue_links = report.get("watchlist_issue_links", {}) if isinstance(report.get("watchlist_issue_links"), dict) else {}
+    console.print(f"Watchlist auto queue: {report.get('watchlist_queue', {}).get('count', 0)} items")
+    console.print(f"Watchlist issue links: {'enabled' if issue_links.get('enabled') else 'disabled'}")
+    console.print(f"issue repo url: {issue_links.get('repo_url') or 'not configured'}")
     console.print(f"bucket_counts: {report['summary']['bucket_counts']}")
     console.print(f"main_card_count: {report['summary'].get('main_card_count', 0)}")
     console.print(f"report enrichment status: {report.get('report_enrichment', {})}")

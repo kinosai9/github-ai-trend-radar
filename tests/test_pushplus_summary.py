@@ -74,3 +74,10 @@ def test_pushplus_summary_contains_run_status():
 def test_pushplus_summary_contains_watchlist_count():
     html = render_pushplus_summary(_report(), full_report_url="local.html", full_report_is_url=False)
     assert "本期待复核 Watchlist：4" in html
+
+
+def test_pushplus_summary_explains_zero_watchlist_count():
+    report = _report()
+    report["watchlist_queue"] = {"count": 0}
+    html = render_pushplus_summary(report, full_report_url="local.html", full_report_is_url=False)
+    assert "本期待复核 Watchlist：0 个（本期无强候选）" in html

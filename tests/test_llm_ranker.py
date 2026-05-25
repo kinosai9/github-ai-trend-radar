@@ -188,3 +188,65 @@ def test_score_use_llm_without_key_writes_llm_snapshot(tmp_path, monkeypatch):
     payload = json.loads(snapshot_path(tmp_path, "daily", "llm-scored").read_text(encoding="utf-8"))
     assert payload["llm"]["enabled"] is False
     assert payload["candidates"][0]["llm_status"] == "skipped"
+
+
+def test_score_llm_timeout_uses_env_when_cli_llm_timeout_omitted(tmp_path, monkeypatch):
+    captured = {}
+    _write_candidates(tmp_path)
+    monkeypatch.setenv("LLM_API_KEY", "key")
+    monkeypatch.setenv("LLM_TIMEOUT", "77")
+
+    class Client:
+        available = True
+
+        def __init__(self, config):
+            captured["timeout"] = config.timeout
+
+    def fake_enrich(payload, **kwargs):
+        payload["llm"] = {"enabled": True, "candidate_count": 0, "ok_count": 0, "api_failed_count": 0, "parse_failed_count": 0, "skipped_count": 1}
+        return payload
+
+    monkeypatch.setattr("github_ai_trend_radar.main.LLMClient", Client)
+    monkeypatch.setattr("github_ai_trend_radar.main.enrich_with_llm", fake_enrich)
+
+    exit_code = main(["score", "--period", "daily", "--snapshot-dir", str(tmp_path), "--use-llm", "--timeout", "1"])
+
+    assert exit_code == 0
+    assert captured["timeout"] == 77
+
+
+def test_score_llm_timeout_cli_override(tmp_path, monkeypatch):
+    captured = {}
+    _write_candidates(tmp_path)
+    monkeypatch.setenv("LLM_API_KEY", "key")
+    monkeypatch.setenv("LLM_TIMEOUT", "77")
+
+    class Client:
+        available = True
+
+        def __init__(self, config):
+            captured["timeout"] = config.timeout
+
+    def fake_enrich(payload, **kwargs):
+        payload["llm"] = {"enabled": True, "candidate_count": 0, "ok_count": 0, "api_failed_count": 0, "parse_failed_count": 0, "skipped_count": 1}
+        return payload
+
+    monkeypatch.setattr("github_ai_trend_radar.main.LLMClient", Client)
+    monkeypatch.setattr("github_ai_trend_radar.main.enrich_with_llm", fake_enrich)
+
+    exit_code = main(["score", "--period", "daily", "--snapshot-dir", str(tmp_path), "--use-llm", "--llm-timeout", "90"])
+
+    assert exit_code == 0
+    assert captured["timeout"] == 90
+
+
+def _write_candidates(tmp_path):
+    save_json(
+        {
+            "period": "daily",
+            "generated_at": "2026-05-20T00:00:00+00:00",
+            "sources": {},
+            "candidates": [candidate("o/a", "breakout")],
+        },
+        snapshot_path(tmp_path, "daily", "candidates"),
+    )

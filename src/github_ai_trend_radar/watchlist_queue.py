@@ -31,27 +31,13 @@ def build_watchlist_queue(report: dict[str, Any], *, max_items: int = 10) -> lis
         for item in report.get("sections", {}).get(section, []):
             if len(items) >= max_items:
                 return items
-            if not is_queue_candidate(item):
+            if not is_auto_queue_candidate(item):
                 continue
-            queue_item = {
-                "repo": item.get("repo_full_name", ""),
-                "html_url": item.get("html_url", ""),
-                "source_report": f"{report.get('generated_at', '')[:10]}-{report.get('period', 'daily')}",
-                "source_section": section,
-                "recommended_action": item.get("recommended_action", ""),
-                "topics": item.get("matched_focus_topics", []),
-                "radar_score": item.get("radar_score"),
-                "llm_adjusted_score": item.get("llm_adjusted_score"),
-                "quality_gate": (item.get("quality_gate") or {}).get("level", "pass")
-                if isinstance(item.get("quality_gate"), dict)
-                else "pass",
-                "reason": item.get("reason_to_watch") or item.get("summary") or "",
-            }
-            items.append(queue_item)
+            items.append(_queue_item(report, item, section))
     return items
 
 
-def is_queue_candidate(item: dict[str, Any]) -> bool:
+def is_auto_queue_candidate(item: dict[str, Any]) -> bool:
     action = item.get("recommended_action")
     if action not in {"deep_research", "try_locally", "read"}:
         return False
@@ -70,23 +56,46 @@ def is_queue_candidate(item: dict[str, Any]) -> bool:
         return False
 
 
+def is_manual_watch_candidate(item: dict[str, Any]) -> bool:
+    if not item.get("repo_full_name") or not item.get("html_url"):
+        return False
+    if item.get("recommended_action") == "ignore":
+        return False
+    gate = item.get("quality_gate", {}) if isinstance(item.get("quality_gate"), dict) else {}
+    if gate.get("level") == "block":
+        return False
+    noise = item.get("noise", {}) if isinstance(item.get("noise"), dict) else {}
+    if noise.get("is_noise") is True:
+        return False
+    return True
+
+
+def is_queue_candidate(item: dict[str, Any]) -> bool:
+    return is_auto_queue_candidate(item)
+
+
 def attach_issue_links(report: dict[str, Any], *, repo_url: str | None = None) -> dict[str, Any]:
     repo_url = (repo_url if repo_url is not None else repo_url_from_env()).rstrip("/")
     queue = build_watchlist_queue(report)
-    by_repo = {item["repo"]: item for item in queue}
+    issue_links = 0
     for section in ("breakout", "deep_research", "long_term"):
         for item in report.get("sections", {}).get(section, []):
-            queue_item = by_repo.get(item.get("repo_full_name"))
-            if not queue_item:
+            repo_full_name = item.get("repo_full_name", "")
+            if repo_full_name:
+                item["watch_add_command"] = _watch_add_command(item)
+                item["deep_research_command"] = (
+                    f"python -m github_ai_trend_radar.main deep-research --repo {repo_full_name} --open"
+                )
+                item["watchlist_local_command"] = item["deep_research_command"]
+            if not is_manual_watch_candidate(item):
                 item["watchlist_queue_eligible"] = False
                 continue
             item["watchlist_queue_eligible"] = True
-            item["watchlist_local_command"] = (
-                f"python -m github_ai_trend_radar.main deep-research --repo {item.get('repo_full_name')} --open"
-            )
             if repo_url:
-                item["watchlist_issue_url"] = build_issue_url(repo_url, queue_item)
+                item["watchlist_issue_url"] = build_issue_url(repo_url, _queue_item(report, item, section))
+                issue_links += 1
     report["watchlist_queue"] = {"count": len(queue), "items": queue, "repo_url": repo_url}
+    report["watchlist_issue_links"] = {"enabled": bool(repo_url), "count": issue_links, "repo_url": repo_url}
     return report
 
 
@@ -94,10 +103,46 @@ def write_watchlist_queue(report: dict[str, Any], output_dir: str | Path = "data
     queue = report.get("watchlist_queue", {}).get("items", []) if isinstance(report.get("watchlist_queue"), dict) else []
     period = report.get("period", "daily")
     day = str(report.get("generated_at", ""))[:10]
-    return save_json(
+    path = save_json(
         {"period": period, "report_date": day, "generated_at": report.get("generated_at"), "items": queue},
         Path(output_dir) / f"{day}-{period}-watchlist-queue.json",
     )
+    if isinstance(report.get("watchlist_queue"), dict):
+        report["watchlist_queue"]["file"] = str(path)
+    return path
+
+
+def _queue_item(report: dict[str, Any], item: dict[str, Any], section: str) -> dict[str, Any]:
+    return {
+        "repo": item.get("repo_full_name", ""),
+        "html_url": item.get("html_url", ""),
+        "source_report": f"{report.get('generated_at', '')[:10]}-{report.get('period', 'daily')}",
+        "source_section": section,
+        "recommended_action": item.get("recommended_action", ""),
+        "topics": item.get("matched_focus_topics", []),
+        "radar_score": item.get("radar_score"),
+        "llm_adjusted_score": item.get("llm_adjusted_score"),
+        "quality_gate": (item.get("quality_gate") or {}).get("level", "pass")
+        if isinstance(item.get("quality_gate"), dict)
+        else "pass",
+        "reason": item.get("reason_to_watch") or item.get("summary") or "",
+    }
+
+
+def _command_reason(item: dict[str, Any]) -> str:
+    reason = str(item.get("reason_to_watch") or item.get("summary") or "").replace('"', "'")
+    return reason[:160]
+
+
+def _watch_add_command(item: dict[str, Any]) -> str:
+    command = (
+        f"python -m github_ai_trend_radar.main watch add {item.get('repo_full_name')} "
+        f"--reason \"{_command_reason(item)}\""
+    )
+    topics = ",".join(str(topic) for topic in item.get("matched_focus_topics", []) if topic)
+    if topics:
+        command += f" --topics {topics}"
+    return command
 
 
 def build_issue_url(repo_url: str, item: dict[str, Any], labels: tuple[str, ...] = QUEUE_LABELS) -> str:

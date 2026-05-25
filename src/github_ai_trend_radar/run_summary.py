@@ -25,6 +25,7 @@ def write_run_summary(
     report = report or {}
     stats = report.get("stats", {}) if isinstance(report.get("stats"), dict) else {}
     overview = report.get("overview_enrichment", {}) if isinstance(report.get("overview_enrichment"), dict) else {}
+    watchlist_queue = report.get("watchlist_queue", {}) if isinstance(report.get("watchlist_queue"), dict) else {}
     payload = {
         "period": period,
         "report_date": report_date,
@@ -39,6 +40,11 @@ def write_run_summary(
             },
         },
         "quality_gate": stats.get("quality_gate", {"pass": 0, "warn": 0, "block": 0}),
+        "watchlist": {
+            "queue_generated": bool(watchlist_queue.get("file") or "items" in watchlist_queue),
+            "queue_count": int(watchlist_queue.get("count", 0) or 0),
+            "queue_file": watchlist_queue.get("file", ""),
+        },
         "reports": {
             "html": f"data/reports/{report_date}-{period}-report.html",
             "markdown": f"data/reports/{report_date}-{period}-report.md",
