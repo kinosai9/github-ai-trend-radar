@@ -78,6 +78,7 @@ jobs:
       LLM_TIMEOUT: ${{ vars.LLM_TIMEOUT }}
       TOPICS_JSON: ${{ vars.TOPICS_JSON }}
       SITE_BASE_URL: ${{ vars.SITE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+      SITE_REPO_URL: ${{ vars.SITE_REPO_URL || format('https://github.com/{0}', github.repository) }}
 
     steps:
       - name: Checkout
@@ -186,5 +187,6 @@ jobs:
             data/snapshots
             data/reports/*run-summary.json
             data/reports/*report-enriched.json
+            data/watchlist_queue/*.json
           if-no-files-found: ignore
           retention-days: 7

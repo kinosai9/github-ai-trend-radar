@@ -38,6 +38,12 @@ data/reports/*
 !data/reports/.gitkeep
 data/snapshots/*
 !data/snapshots/.gitkeep
+data/inbox/*
+!data/inbox/.gitkeep
+data/research/*
+!data/research/.gitkeep
+data/watchlist_queue/*
+!data/watchlist_queue/.gitkeep
 
 /site/
 /public/

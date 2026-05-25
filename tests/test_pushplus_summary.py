@@ -28,6 +28,7 @@ def _report():
             "status": "partial_success",
             "llm": {"project_analysis": {"candidate_count": 20, "ok_count": 14, "failed_count": 6}},
         },
+        "watchlist_queue": {"count": 4},
     }
 
 
@@ -68,3 +69,8 @@ def test_pushplus_summary_contains_run_status():
     html = render_pushplus_summary(_report(), full_report_url="local.html", full_report_is_url=False)
     assert "运行状态：部分完成" in html
     assert "项目级 LLM 14/20 成功" in html
+
+
+def test_pushplus_summary_contains_watchlist_count():
+    html = render_pushplus_summary(_report(), full_report_url="local.html", full_report_is_url=False)
+    assert "本期待复核 Watchlist：4" in html

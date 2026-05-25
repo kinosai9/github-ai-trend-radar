@@ -56,7 +56,10 @@ a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor
 .card-head { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
 .repo-title { margin: 0; font-family: var(--serif); font-size: clamp(22px, 3vw, 34px); line-height: 1.15; }
 .repo-title a { border-bottom: 0; }
+.card-actions { display: grid; gap: 8px; justify-items: end; }
 .action { border: 1px solid currentColor; padding: 4px 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+.queue-button { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 6px 9px; font-size: 12px; border-radius: 4px; }
+.queue-command { margin-top: 8px; color: var(--quiet); font-family: var(--mono); font-size: 11px; word-break: break-all; }
 .summary { margin: 14px 0 0; color: var(--muted); font-size: 15px; }
 .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .tag { border: 1px solid rgba(10,31,61,.18); padding: 2px 7px; background: rgba(255,255,255,.25); }
@@ -130,7 +133,10 @@ a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor
   <article class="card">
     <div class="card-head">
       <h3 class="repo-title"><a href="{{ item.html_url }}" target="_blank" rel="noopener">{{ item.repo_full_name }}</a></h3>
-      {% if item.recommended_action_label is defined %}<div class="action">{{ item.recommended_action_label }}</div>{% endif %}
+      <div class="card-actions">
+        {% if item.recommended_action_label is defined %}<div class="action">{{ item.recommended_action_label }}</div>{% endif %}
+        {% if item.watchlist_issue_url is defined %}<a class="queue-button" href="{{ item.watchlist_issue_url }}" target="_blank" rel="noopener">加入观察队列</a>{% endif %}
+      </div>
     </div>
     <p class="summary">{{ item.summary }}</p>
     <div class="analysis">
@@ -155,6 +161,7 @@ a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor
       {% if item.radar_score is defined %}<span>雷达 {{ item.radar_score }}</span>{% endif %}
       {% if item.llm_adjusted_score is defined %}<span>LLM {{ item.llm_adjusted_score }}</span>{% endif %}
     </div>
+    {% if item.watchlist_local_command is defined %}<div class="queue-command">本地深研：{{ item.watchlist_local_command }}</div>{% endif %}
   </article>
   {%- endmacro %}
 
