@@ -1,0 +1,18 @@
+company:
+  role: ""
+  delivery_mode: ""
+  focus_domains: []
+  current_stack: []
+  evaluation_priorities: []
+  risk_concerns: []
+  preferred_architecture: []
+  integration_targets: []
+  unacceptable_risks: []
+
+deep_research:
+  report_language: zh-CN
+  enterprise_fit_required: true
+  include_architecture_diagram: true
+  include_mindmap: true
+  include_comparison_table: true
+  include_negative_signals: true

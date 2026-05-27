@@ -612,7 +612,7 @@ def _status_from_report(report: dict[str, object]) -> str:
 
 
 def doctor(args: argparse.Namespace) -> int:
-    return run_doctor(timeout=args.timeout, console=console, llm=args.llm)
+    return run_doctor(timeout=args.timeout, console=console, llm=args.llm, research_llm=args.research_llm)
 
 
 def resolve_run_context(args: argparse.Namespace) -> int:
@@ -794,7 +794,22 @@ def deep_research(args: argparse.Namespace) -> int:
         console.print("[bold red]No repo selected for deep research.[/bold red]")
         return 1
     for repo in repos:
-        md, html = write_deep_research_report(repo, output_dir=args.output_dir)
+        md, html = write_deep_research_report(
+            repo,
+            output_dir=args.output_dir,
+            depth=args.depth,
+            profile=args.profile,
+            compare=args.compare,
+            clone=args.clone,
+            max_files=args.max_files,
+            max_issues=args.max_issues,
+            max_comparables=args.max_comparables,
+            private=args.private,
+            config_dir=args.config_dir,
+            use_llm=not args.no_llm,
+            llm_timeout=args.llm_timeout,
+            llm_stages=_csv(args.llm_stages),
+        )
         console.print(f"[green]Research written:[/green] {md}")
         console.print(f"[green]Research HTML:[/green] {html}")
         if args.open:
@@ -883,6 +898,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run LLM provider diagnostics.",
     )
+    doctor_parser.add_argument(
+        "--research-llm",
+        action="store_true",
+        help="Run Deep Research LLM provider diagnostics.",
+    )
     doctor_parser.set_defaults(handler=doctor)
 
     render_parser = subparsers.add_parser(
@@ -969,7 +989,26 @@ def build_parser() -> argparse.ArgumentParser:
     research_parser.add_argument("--limit", type=int, default=3)
     research_parser.add_argument("--inbox-path", default="data/inbox/watchlist_issues.json")
     research_parser.add_argument("--output-dir", default="data/research")
+    research_parser.add_argument("--config-dir", default="config")
+    research_parser.add_argument("--depth", choices=("quick", "standard", "full"), default="standard")
+    research_parser.add_argument("--profile", default="enterprise_ai_service")
+    research_parser.add_argument("--compare", action="store_true")
+    research_parser.add_argument("--clone", dest="clone", action="store_true")
+    research_parser.add_argument("--no-clone", dest="clone", action="store_false")
+    research_parser.add_argument("--max-files", type=int, default=80)
+    research_parser.add_argument("--max-issues", type=int, default=50)
+    research_parser.add_argument("--max-comparables", type=int, default=5)
+    research_parser.add_argument("--private", dest="private", action="store_true")
+    research_parser.add_argument("--public", dest="private", action="store_false")
+    research_parser.add_argument("--no-llm", action="store_true", help="Disable staged LLM analysis for deep research.")
+    research_parser.add_argument("--llm-timeout", type=float, default=None, help="LLM request timeout for staged deep research.")
+    research_parser.add_argument(
+        "--llm-stages",
+        default="",
+        help="Comma-separated deep research LLM stages. Defaults to all stages.",
+    )
     research_parser.add_argument("--open", action="store_true")
+    research_parser.set_defaults(clone=False, private=True)
     research_parser.set_defaults(handler=deep_research)
 
     context_parser = subparsers.add_parser(

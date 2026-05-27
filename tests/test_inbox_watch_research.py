@@ -97,7 +97,7 @@ def test_deep_research_without_llm_writes_summary(tmp_path):
         def get_readme(self, owner, repo):
             return "README"
 
-    md, html = write_deep_research_report("owner/repo", output_dir=tmp_path, client=Client())
+    md, html = write_deep_research_report("owner/repo", output_dir=tmp_path, client=Client(), use_llm=False)
     assert md.exists()
     assert html.exists()
     assert "本地资料汇总版" in md.read_text(encoding="utf-8")

@@ -24,6 +24,41 @@ def _candidate(name, bucket, action="watch", noise=False, reason=None, score=0.7
     }
 
 
+def test_report_enrichment_rewrites_existing_english_llm_fields():
+    class Client:
+        available = True
+        model = "fake"
+
+        def complete_json(self, messages):
+            return type(
+                "R",
+                (),
+                {
+                    "ok": True,
+                    "content": '{"summary_for_report":"这是一个面向代码库理解的工具。","why_it_matters":"它可能提升研发上下文获取效率，但需要验证真实代码解析能力。","enterprise_fit":"适合在非敏感仓库中先做 PoC，再评估权限和离线部署边界。","risks":["成熟度和企业权限能力仍需验证"]}',
+                },
+            )()
+
+    report = build_report_model(
+        {"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]},
+        load_report_config("missing-config-dir"),
+    )
+    item = report["sections"]["breakout"][0]
+    item["analysis_source"] = "LLM 校准"
+    item["summary"] = "A coding agent framework for enterprise workflows."
+    item["reason_to_watch"] = "It provides repository intelligence and automation."
+    item["engineering_takeaway"] = "Useful for private deployment after validation."
+    item["risks"] = ["Requires validation before production use."]
+
+    enriched = enrich_report_model(report, Client(), max_items=10)
+    enriched_item = enriched["sections"]["breakout"][0]
+
+    assert enriched["report_enrichment"]["candidate_count"] == 1
+    assert enriched_item["report_enrichment_status"] == "ok"
+    assert enriched_item["analysis_source"] == "LLM 报告补齐"
+    assert "代码库理解" in enriched_item["summary"]
+
+
 def test_i18n_label_mapping():
     assert zh_label("Candidates") == "候选项目"
     assert zh_label("Deep Research") == "深研"

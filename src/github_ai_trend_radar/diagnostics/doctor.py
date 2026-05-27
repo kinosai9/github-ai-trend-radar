@@ -84,16 +84,19 @@ def _request_once(target: DoctorTarget, *, timeout: float, console: Console) -> 
         return None
 
 
-def _print_llm_diagnostics(*, timeout: float, console: Console) -> None:
-    config = replace(LLMConfig.from_env(), timeout=timeout)
-    console.print("\n[bold]LLM Provider[/bold]")
-    console.print(f"LLM_PROVIDER: {config.provider}")
-    console.print(f"LLM_API_STYLE: {config.api_style}")
-    console.print(f"LLM_API_BASE: {'present host=' + config.api_base_host if config.api_base else 'missing'}")
-    console.print(f"LLM_MODEL: {config.model}")
-    console.print(f"LLM_API_KEY: {'present' if config.api_key_present else 'missing'}")
-    console.print(f"LLM_THINKING: {config.thinking}")
-    console.print(f"LLM_TEMPERATURE: {config.temperature}")
+def _print_llm_diagnostics(*, timeout: float, console: Console, research: bool = False) -> None:
+    config = replace(LLMConfig.from_research_env() if research else LLMConfig.from_env(), timeout=timeout)
+    prefix = "RESEARCH_LLM" if research else "LLM"
+    console.print(f"\n[bold]{'Research LLM Provider' if research else 'LLM Provider'}[/bold]")
+    console.print(f"{prefix}_PROVIDER: {config.provider}")
+    console.print(f"{prefix}_API_STYLE: {config.api_style}")
+    console.print(f"{prefix}_API_BASE: {'present host=' + config.api_base_host if config.api_base else 'missing'}")
+    console.print(f"{prefix}_MODEL: {config.model}")
+    console.print(f"{prefix}_API_KEY: {'present' if config.api_key_present else 'missing'}")
+    console.print(f"{prefix}_THINKING: {config.thinking}")
+    console.print(f"{prefix}_TEMPERATURE: {config.temperature}")
+    console.print(f"{prefix}_MAX_TOKENS: {config.max_tokens}")
+    console.print(f"{prefix}_TIMEOUT: {config.timeout}")
     if config.provider == "kimi_code" and config.api_style == "openai_compatible":
         console.print(
             "[yellow]warning: Kimi Code / Coding Plan may reject OpenAI-compatible requests from "
@@ -118,11 +121,13 @@ def _print_llm_diagnostics(*, timeout: float, console: Console) -> None:
     console.print(f"reasoning_content_present: {bool(result.reasoning_content)}")
 
 
-def run_doctor(*, timeout: float = 20, console: Console | None = None, llm: bool = False) -> int:
+def run_doctor(*, timeout: float = 20, console: Console | None = None, llm: bool = False, research_llm: bool = False) -> int:
     output = console or Console()
     _print_environment(output)
     if llm:
         _print_llm_diagnostics(timeout=timeout, console=output)
+    if research_llm:
+        _print_llm_diagnostics(timeout=timeout, console=output, research=True)
 
     targets = [
         DoctorTarget("GitHub rate limit", "https://api.github.com/rate_limit"),

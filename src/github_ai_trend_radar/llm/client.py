@@ -36,12 +36,12 @@ class LLMClient:
     def complete_json(self, messages: list[dict], **kwargs) -> LLMResult:
         return self.provider.complete(messages, json_mode=True, **kwargs)
 
-    def chat_json(self, *, system_prompt: str, user_payload: dict[str, Any]) -> LLMResult:
+    def chat_json(self, *, system_prompt: str, user_payload: dict[str, Any], **kwargs: Any) -> LLMResult:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ]
-        return self.complete_json(messages)
+        return self.complete_json(messages, **kwargs)
 
     def _make_provider(self):
         if self.config.provider == "moonshot":

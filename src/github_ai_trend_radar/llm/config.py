@@ -59,6 +59,33 @@ class LLMConfig:
         )
         return config.with_provider_defaults()
 
+    @classmethod
+    def from_research_env(cls) -> "LLMConfig":
+        base = cls.from_env()
+        research_api_key = _research_env("API_KEY")
+        research_api_base = _research_env("API_BASE")
+        research_model = _research_env("MODEL")
+        research_provider = _research_env("PROVIDER")
+        research_api_style = _research_env("API_STYLE")
+        research_temperature = _research_env("TEMPERATURE")
+        research_max_tokens = _research_env("MAX_TOKENS")
+        research_timeout = _research_env("TIMEOUT")
+        research_thinking = _research_env("THINKING")
+        config = cls(
+            provider=_value_or(research_provider, base.provider),
+            api_style=_value_or(research_api_style, base.api_style),
+            api_key=_value_or(research_api_key, base.api_key),
+            api_base=_value_or(research_api_base, base.api_base),
+            model=_value_or(research_model, base.model),
+            temperature=_float(research_temperature, base.temperature),
+            max_tokens=_int(research_max_tokens, base.max_tokens),
+            timeout=_float(research_timeout, base.timeout),
+            thinking=_normalize_thinking(_value_or(research_thinking, base.thinking)),
+            temperature_explicit=research_temperature is not None and research_temperature.strip() != "" or base.temperature_explicit,
+            thinking_explicit=research_thinking is not None and research_thinking.strip() != "" or base.thinking_explicit,
+        )
+        return config.with_provider_defaults()
+
     def with_provider_defaults(self) -> "LLMConfig":
         provider = self.provider
         text = f"{self.provider} {self.api_base} {self.model}".lower()
@@ -96,6 +123,14 @@ class LLMConfig:
 
 def _env(name: str, default: str) -> str:
     value = os.getenv(name)
+    return default if value is None or value.strip() == "" else value.strip()
+
+
+def _research_env(suffix: str) -> str | None:
+    return os.getenv(f"DEEP_RESEARCH_LLM_{suffix}") or os.getenv(f"RESEARCH_LLM_{suffix}")
+
+
+def _value_or(value: str | None, default: str) -> str:
     return default if value is None or value.strip() == "" else value.strip()
 
 

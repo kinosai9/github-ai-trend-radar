@@ -28,6 +28,58 @@ def test_new_and_old_env_fallback(monkeypatch):
     assert config.model == "old-model"
 
 
+def test_research_llm_env_falls_back_to_general(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "general-key")
+    monkeypatch.setenv("LLM_API_BASE", "https://general.example/v1")
+    monkeypatch.setenv("LLM_MODEL", "general-model")
+    for name in (
+        "RESEARCH_LLM_API_KEY",
+        "RESEARCH_LLM_API_BASE",
+        "RESEARCH_LLM_MODEL",
+        "RESEARCH_LLM_PROVIDER",
+        "RESEARCH_LLM_API_STYLE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    config = LLMConfig.from_research_env()
+
+    assert config.api_key == "general-key"
+    assert config.api_base == "https://general.example/v1"
+    assert config.model == "general-model"
+
+
+def test_research_llm_env_overrides_general(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "general-key")
+    monkeypatch.setenv("LLM_API_BASE", "https://general.example/v1")
+    monkeypatch.setenv("LLM_MODEL", "general-model")
+    monkeypatch.setenv("RESEARCH_LLM_API_KEY", "research-key")
+    monkeypatch.setenv("RESEARCH_LLM_API_BASE", "https://research.example/v1")
+    monkeypatch.setenv("RESEARCH_LLM_MODEL", "research-model")
+    monkeypatch.setenv("RESEARCH_LLM_TIMEOUT", "120")
+    monkeypatch.setenv("RESEARCH_LLM_MAX_TOKENS", "4096")
+
+    config = LLMConfig.from_research_env()
+
+    assert config.api_key == "research-key"
+    assert config.api_base == "https://research.example/v1"
+    assert config.model == "research-model"
+    assert config.timeout == 120
+    assert config.max_tokens == 4096
+
+
+def test_deep_research_llm_env_overrides_research_and_general(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "general-key")
+    monkeypatch.setenv("RESEARCH_LLM_API_KEY", "research-key")
+    monkeypatch.setenv("RESEARCH_LLM_MODEL", "research-model")
+    monkeypatch.setenv("DEEP_RESEARCH_LLM_API_KEY", "deep-key")
+    monkeypatch.setenv("DEEP_RESEARCH_LLM_MODEL", "deep-model")
+
+    config = LLMConfig.from_research_env()
+
+    assert config.api_key == "deep-key"
+    assert config.model == "deep-model"
+
+
 def test_moonshot_defaults(monkeypatch):
     monkeypatch.delenv("LLM_THINKING", raising=False)
     monkeypatch.delenv("LLM_TEMPERATURE", raising=False)

@@ -61,3 +61,21 @@ def test_doctor_warns_for_kimi_code_openai_style(monkeypatch, capsys):
     assert main(["doctor", "--llm", "--timeout", "1"]) == 0
 
     assert "may reject OpenAI-compatible requests" in capsys.readouterr().out
+
+
+def test_doctor_research_llm_uses_research_prefix(monkeypatch, capsys):
+    for name in ("LLM_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("github_ai_trend_radar.main.load_local_env", lambda: None)
+    monkeypatch.setenv("RESEARCH_LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("RESEARCH_LLM_API_STYLE", "openai_compatible")
+    monkeypatch.setenv("RESEARCH_LLM_API_KEY", "")
+    monkeypatch.setenv("RESEARCH_LLM_MODEL", "research-model")
+    monkeypatch.setattr("github_ai_trend_radar.diagnostics.doctor.requests.get", lambda *args, **kwargs: type("R", (), {"status_code": 200, "url": args[0], "headers": {}, "text": "{}"})())
+
+    assert main(["doctor", "--research-llm", "--timeout", "1"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Research LLM Provider" in output
+    assert "RESEARCH_LLM_MODEL: research-model" in output
+    assert "RESEARCH_LLM_API_KEY: missing" in output

@@ -1,0 +1,51 @@
+company:
+  role: "企业 AI 工程与研发效能团队"
+  delivery_mode: "内部试点、私有化部署评估、长期运维与二次开发"
+  focus_domains:
+    - AI Agent
+    - MCP
+    - Coding Agent
+    - RAG
+    - LLM Infra
+    - Vector DB
+  current_stack:
+    - Python
+    - GitHub Actions
+    - OpenAI-compatible API
+    - PostgreSQL
+    - Docker
+  evaluation_priorities:
+    - 企业落地价值
+    - 私有化部署可行性
+    - 工程成熟度
+    - 二次开发成本
+    - 数据安全与权限边界
+  risk_concerns:
+    - 维护不活跃
+    - 文档不足
+    - 安全边界不清
+    - 依赖复杂
+    - 与现有工作流割裂
+  preferred_architecture:
+    - 可自托管
+    - API 优先
+    - CLI 可自动化
+    - 权限可审计
+    - 数据可隔离
+  integration_targets:
+    - Claude Code / Codex 工作流
+    - MCP 工具生态
+    - 企业知识库
+    - 内部 Agent / Skill 能力沉淀
+  unacceptable_risks:
+    - 必须上传内部代码或业务数据到不可控第三方
+    - 无法审计权限边界
+    - 许可证不清晰
+
+deep_research:
+  report_language: zh-CN
+  enterprise_fit_required: true
+  include_architecture_diagram: true
+  include_mindmap: true
+  include_comparison_table: true
+  include_negative_signals: true
