@@ -20,7 +20,7 @@ STAGES = (
 
 STAGE_MAX_TOKENS = {
     "repo_overview_summary": 1200,
-    "code_architecture_summary": 2200,
+    "code_architecture_summary": 3200,
     "negative_signal_summary": 1200,
     "comparison_summary": 2200,
     "enterprise_fit_summary": 1800,
@@ -30,7 +30,7 @@ STAGE_MAX_TOKENS = {
 
 PROMPTS = {
     "repo_overview_summary": "你是企业 AI 工程尽调分析师。只输出紧凑 JSON，不要 Markdown fence。每个数组最多 5 条，每条不超过 60 字。字段：summary, project_type, maturity, core_value, reasons_to_continue, concerns。",
-    "code_architecture_summary": "你是资深软件架构师。只输出 JSON，不要 Markdown fence。字段：summary, entrypoints, core_modules, data_flow, extension_points, api_cli_surface, security_boundary, architecture_risks。不编造未提供的信息。",
+    "code_architecture_summary": "你是资深软件架构师。只输出紧凑 JSON，不要 Markdown fence，不要解释。数组最多 8 条，每条不超过 80 字。必须遵循 project_archetype：gui_agent 关注 Electron/Agent Runtime/Model Provider/Environment Adapters/Action Parser/Operator/MCP/Logs/Security；code_knowledge_graph 才分析 graph pipeline。字段：summary, entrypoints, core_modules, data_flow, extension_points, api_cli_surface, security_boundary, architecture_risks。不编造未提供的信息。",
     "negative_signal_summary": "你是企业技术风险审查员。只输出 JSON，不要 Markdown fence。字段：summary, maturity_risks, security_risks, maintenance_risks, enterprise_blockers, risk_note。",
     "comparison_summary": "你是企业技术选型分析师。只输出紧凑 JSON，不要 Markdown fence。每个数组最多 5 条，每条不超过 80 字。基于 comparison 中 direct/adjacent comparable，输出字段：summary, direct_comparables, adjacent_comparables, target_position, differentiators, replacement_options, comparison_risks。不使用 weak 项目做主要结论。",
     "enterprise_fit_summary": "你是面向 toB 业务的企业 AI 落地顾问。只输出 JSON，不要 Markdown fence。必须基于 company_profile 逐项回答私有化部署、Claude Code/Codex 工作流、Coding Agent 上下文增强、Neo4j/pgvector/Obsidian/llm_wiki/企业知识库结合、skill/agent 能力沉淀、行业项目交付可维护性、权限审计隔离数据安全、最小 PoC 路径、不建议投入条件。字段：summary, relevance, applicable_scenarios, integration_paths, required_adaptations, deployment_feasibility, risk_note, recommended_action, investment_suggestion, enterprise_action_plan。",
@@ -111,6 +111,7 @@ def _stage_payload(stage: str, payload: dict[str, Any], prior: dict[str, Any]) -
             "pushed_at": metadata.get("pushed_at"),
         },
         "company_profile": _compact_company_profile(payload.get("company_profile", {})),
+        "project_archetype": payload.get("project_archetype", {}),
         "prior_stage_results": _compact_prior(prior),
     }
     if stage == "repo_overview_summary":
@@ -179,6 +180,14 @@ def _compact_repo_structure(structure: Any) -> dict[str, Any]:
         "tests_paths": (structure.get("tests_paths", []) or [])[:12],
         "deployment_files": (structure.get("deployment_files", []) or [])[:12],
         "package_files": (structure.get("package_files", []) or [])[:12],
+        "monorepo_structure": {
+            key: {
+                "role": value.get("role", ""),
+                "key_files": (value.get("key_files", []) or [])[:5],
+            }
+            for key, value in list((structure.get("monorepo_structure", {}) or {}).items())[:12]
+            if isinstance(value, dict)
+        },
     }
 
 

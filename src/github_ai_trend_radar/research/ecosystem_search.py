@@ -11,6 +11,7 @@ from github_ai_trend_radar.storage.files import load_json
 
 
 DOMAIN_QUERIES = {
+    "gui_agent": ['"browser-use"', '"computer use" agent', '"gui agent"', '"desktop agent"', '"browser automation" agent'],
     "mcp": ['"model context protocol"', '"mcp server"', '"mcp client"'],
     "ai_agent": ['"ai agent"', '"agent framework"', '"multi-agent" llm'],
     "coding_agent": ['"coding agent"', '"software engineering agent"', '"ai coding assistant"'],
@@ -24,13 +25,16 @@ def search_ecosystem_context(
     context: dict[str, Any],
     company_profile: dict[str, Any],
     *,
+    project_archetype: dict[str, Any] | None = None,
     client: Any | None = None,
     max_projects: int = 10,
     snapshot_dir: str | Path = "data/snapshots",
 ) -> dict[str, Any]:
     metadata = context.get("metadata", {}) if isinstance(context.get("metadata"), dict) else {}
     topics = metadata.get("topics", []) or []
-    primary = _primary_domain(topics, context.get("readme", ""))
+    primary = (project_archetype or {}).get("primary") or _primary_domain(topics, context.get("readme", ""))
+    if primary == "unknown":
+        primary = _primary_domain(topics, context.get("readme", ""))
     target_repo = str(context.get("repo") or metadata.get("full_name") or "").lower()
     github_projects, search_errors = _github_search_projects(
         primary,
@@ -278,3 +282,15 @@ def _target_position(context: dict[str, Any], projects: list[dict[str, Any]]) ->
     if stars >= median:
         return "目标项目在同类候选中具备一定社区热度，建议重点验证工程成熟度和企业可控性。"
     return "目标项目社区热度低于同类中位数，更适合作为早期技术信号观察，需谨慎投入。"
+    if any(keyword in text for keyword in ("gui-agent", "gui agent", "computer-use", "computer use", "browser-use", "desktop agent", "ui automation", "operator", "vlm")):
+        return "gui_agent"
+    if primary_domain == "gui_agent":
+        queries = [
+            '"browser-use"',
+            '"computer use" agent',
+            '"gui agent"',
+            '"desktop automation" agent',
+            '"browser agent"',
+            '"MCP" browser automation',
+            '"devtools mcp"',
+        ] + queries

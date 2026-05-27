@@ -14,7 +14,13 @@ SOURCE_PREFIXES = ("src/", "lib/", "packages/", "pkg/", "app/", "apps/")
 GRAPH_KEYWORDS = ("graph", "node", "edge", "tree-sitter", "treesitter", "parser", "extractor", "index", "embedding", "rag", "neo4j", "networkx")
 
 
-def analyze_code_architecture(context: dict[str, Any], repo_structure: dict[str, Any], *, clone_path: str | Path | None = None) -> dict[str, Any]:
+def analyze_code_architecture(
+    context: dict[str, Any],
+    repo_structure: dict[str, Any],
+    *,
+    clone_path: str | Path | None = None,
+    project_archetype: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     files = context.get("files", [])
     readme = str(context.get("readme", "")).lower()
     root = Path(clone_path) if clone_path else None
@@ -22,7 +28,11 @@ def analyze_code_architecture(context: dict[str, Any], repo_structure: dict[str,
     core_paths = _core_modules(files)
     module_facts = [_module_fact(path, root=root) for path in core_paths]
     core_modules = [_core_module_from_fact(fact) for fact in module_facts]
-    graph_pipeline = _graph_pipeline(files, readme, core_modules)
+    workspace_modules = _workspace_core_modules(repo_structure)
+    core_modules = _dedupe_core_modules(workspace_modules + core_modules)
+    archetype = (project_archetype or {}).get("primary", "unknown")
+    graph_pipeline = _graph_pipeline(files, readme, core_modules, archetype=archetype)
+    execution_chain = _gui_agent_chain(core_modules, files) if archetype == "gui_agent" else {}
     integrations = _integrations(files, core_modules)
     entrypoints = _entrypoints(package_entrypoints, repo_structure.get("entrypoints", []), module_facts)
     return {
@@ -32,7 +42,9 @@ def analyze_code_architecture(context: dict[str, Any], repo_structure: dict[str,
         "module_roles": {item["path"]: item["role"] for item in core_modules},
         "data_flow": _data_flow_hint(readme),
         "graph_pipeline": graph_pipeline,
+        "gui_agent_chain": execution_chain,
         "integrations": integrations,
+        "monorepo_structure": repo_structure.get("monorepo_structure", {}),
         "integration_points": [item["module"] for item in integrations],
         "storage_outputs": _keyword_paths(files, ("neo4j", "sqlite", "graphml", "json", "markdown", "wiki", "storage", "database", "db")),
         "extension_points": _keyword_paths(files, ("plugin", "extension", "adapter", "provider", "tool", "skill")),
@@ -70,6 +82,45 @@ def _core_modules(files: list[str]) -> list[str]:
     ]
     fallback = [path for path in code_files if path.count("/") <= 3]
     return _dedupe(preferred + fallback)[:40]
+
+
+def _workspace_core_modules(repo_structure: dict[str, Any]) -> list[dict[str, Any]]:
+    modules = []
+    monorepo = repo_structure.get("monorepo_structure", {})
+    if not isinstance(monorepo, dict):
+        return modules
+    priority_terms = ("apps/ui-tars", "agent-tars", "gui-agent", "model-provider", "llm-client", "mcp", "infra/pdk", "tarko")
+    for path, info in monorepo.items():
+        if not isinstance(info, dict):
+            continue
+        role = info.get("role") or "Workspace package / role pending validation"
+        if any(term in path.lower() or term in str(role).lower() for term in priority_terms):
+            modules.append(
+                {
+                    "path": path,
+                    "role": role,
+                    "key_functions": [],
+                    "dependencies": [],
+                    "evidence": "; ".join(str(item) for item in info.get("evidence", []) if item),
+                    "key_files": info.get("key_files", [])[:12],
+                    "docstring": "",
+                    "cli_command_registration": "",
+                    "config_keys": [],
+                }
+            )
+    return modules[:30]
+
+
+def _dedupe_core_modules(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    result = []
+    for item in items:
+        path = item.get("path")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        result.append(item)
+    return result[:50]
 
 
 def _keyword_paths(files: list[str], keywords: tuple[str, ...]) -> list[str]:
@@ -112,7 +163,9 @@ def _module_roles(paths: list[str]) -> dict[str, str]:
     return roles
 
 
-def _graph_pipeline(files: list[str], readme: str, core_modules: list[dict[str, Any]]) -> dict[str, Any]:
+def _graph_pipeline(files: list[str], readme: str, core_modules: list[dict[str, Any]], *, archetype: str = "unknown") -> dict[str, Any]:
+    if archetype != "code_knowledge_graph":
+        return {"stages": [], "confidence": "not_applicable", "reason": f"archetype={archetype}; graph pipeline template not applied"}
     stages = []
     text = readme + " " + " ".join(files).lower()
     steps = (
@@ -138,6 +191,34 @@ def _graph_pipeline(files: list[str], readme: str, core_modules: list[dict[str, 
                 }
             )
     return {"stages": stages, "confidence": "medium" if stages else "low"}
+
+
+def _gui_agent_chain(core_modules: list[dict[str, Any]], files: list[str]) -> dict[str, Any]:
+    steps = (
+        ("User Task", ("apps/ui-tars", "agent-cli", "tarko")),
+        ("Desktop App / CLI / Web UI", ("apps/ui-tars", "electron", "renderer", "agent-ui", "cli")),
+        ("Agent Runtime / Planner", ("agent-tars", "tarko", "omni-agent", "planner")),
+        ("Model Provider / VLM / LLM Client", ("model-provider", "llm-client", "provider", "vlm")),
+        ("Environment Adapters", ("environment", "operator", "browser", "desktop", "terminal", "filesystem")),
+        ("Action Parser", ("action-parser", "parser")),
+        ("Operator / Executor", ("operator", "executor", "nutjs", "adb", "browser")),
+        ("MCP / Tools", ("mcp", "tool")),
+        ("State / Logs / Store", ("store", "state", "log", "snapshot")),
+        ("Security Boundary", ("security", "permission", "secret", "auth", "safe")),
+    )
+    stages = []
+    file_text = " ".join(files).lower()
+    for name, keywords in steps:
+        module = _first_module_for_keywords(core_modules, keywords)
+        if module or any(keyword in file_text for keyword in keywords):
+            stages.append(
+                {
+                    "name": name,
+                    "module": module.get("path", "待验证") if module else "待验证",
+                    "evidence": module.get("evidence", "path/package keyword") if module else "path/package keyword",
+                }
+            )
+    return {"stages": stages, "confidence": "medium" if len(stages) >= 5 else "low"}
 
 
 def _entrypoints(package_entrypoints: list[str], structure_entrypoints: list[str], module_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -206,6 +287,11 @@ def _role_from_fact(fact: dict[str, Any]) -> tuple[str, str]:
     path_signal = Path(path).name.lower() + " " + " ".join(Path(path).parts[1:]).lower()
     words = " ".join([path_signal, " ".join(fact.get("functions", [])), " ".join(fact.get("classes", [])), str(fact.get("docstring", ""))]).lower()
     role_map = (
+        ("Electron desktop application shell", ("electron", "renderer", "preload", "ipc", "window")),
+        ("Agent runtime / planner", ("agent", "runtime", "planner", "environment")),
+        ("GUI action parser / operator", ("action", "operator", "browser", "desktop", "nutjs", "adb")),
+        ("Model provider / LLM client", ("model", "provider", "llm", "openai", "anthropic")),
+        ("MCP / tool integration", ("mcp", "tool", "server")),
         ("parser/extractor", ("parser", "extract", "parse", "tree_sitter", "tree-sitter")),
         ("graph builder", ("graph", "node", "edge", "build", "networkx")),
         ("cache / incremental update", ("cache", "affected", "increment", "dedup")),

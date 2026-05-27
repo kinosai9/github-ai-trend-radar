@@ -25,16 +25,32 @@ NEGATIVE_KEYWORDS = (
     "enhancement",
 )
 
+SECURITY_TERMS = ("security", "vulnerability", "injection", "leak", "cve", "ghsa", "unsafe", "auth", "token", "secret", "credential", "shell", "yaml.load")
+DOCS_PREFIXES = ("docs", "doc", "chore", "style", "refactor", "test", "ci")
+FEATURE_PREFIXES = ("feat", "feature")
+
 
 def analyze_issues_and_limitations(context: dict[str, Any], *, max_examples: int = 12) -> dict[str, Any]:
     issues = list(context.get("open_issues") or []) + list(context.get("closed_issues") or [])
-    prs = list(context.get("pull_requests") or [])
+    prs = [dict(item, _source_type="pull_request") for item in list(context.get("pull_requests") or []) if isinstance(item, dict)]
     readme = str(context.get("readme") or "")
     hits = []
     evidence = []
     counter: Counter[str] = Counter()
-    for item in issues + prs:
-        text = f"{item.get('title', '')}\n{item.get('body', '')}".lower()
+    seen_urls: set[str] = set()
+    for item in prs + issues:
+        url = str(item.get("html_url") or "")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        title = str(item.get("title", ""))
+        text = f"{title}\n{item.get('body', '')}".lower()
+        if _is_non_risk_pr(item, text):
+            continue
+        if _is_positive_maintenance_pr(item, text):
+            evidence.append(_build_evidence_item(item, "maintenance", ["test"], "maintenance_signal", "not_a_risk", "low"))
+            continue
         matched = [keyword for keyword in NEGATIVE_KEYWORDS if keyword in text]
         if matched:
             for keyword in matched:
@@ -45,21 +61,7 @@ def analyze_issues_and_limitations(context: dict[str, Any], *, max_examples: int
             severity = _severity(category, matched, text, risk_status)
             hit = {"title": item.get("title", ""), "url": item.get("html_url", ""), "keywords": matched[:5]}
             hits.append(hit)
-            evidence.append(
-                {
-                    "title": item.get("title", ""),
-                    "url": item.get("html_url", ""),
-                    "issue_number": item.get("number"),
-                    "state": item.get("state", "unknown"),
-                    "category": category,
-                    "severity": severity,
-                    "evidence_kind": evidence_kind,
-                    "risk_status": risk_status,
-                    "summary": _summary(item, matched),
-                    "enterprise_impact": _enterprise_impact(category, severity),
-                    "confidence": "high" if item.get("html_url") else "medium",
-                }
-            )
+            evidence.append(_build_evidence_item(item, category, matched, evidence_kind, risk_status, severity))
     readme_lower = readme.lower()
     readme_limitations = [keyword for keyword in ("limitation", "unsupported", "experimental", "beta", "security") if keyword in readme_lower]
     return {
@@ -76,8 +78,41 @@ def analyze_issues_and_limitations(context: dict[str, Any], *, max_examples: int
     }
 
 
+def _build_evidence_item(
+    item: dict[str, Any],
+    category: str,
+    matched: list[str],
+    evidence_kind: str,
+    risk_status: str,
+    severity: str,
+) -> dict[str, Any]:
+    return {
+        "title": item.get("title", ""),
+        "url": item.get("html_url", ""),
+        "issue_number": item.get("number"),
+        "state": item.get("state", "unknown"),
+        "labels": _labels(item),
+        "merged": _is_merged_pr(item),
+        "merged_at": item.get("merged_at"),
+        "closed_at": item.get("closed_at"),
+        "created_at": item.get("created_at"),
+        "github_state": item.get("state", "unknown"),
+        "state_source": _state_source(item),
+        "author": _author(item),
+        "body_excerpt": str(item.get("body") or "")[:500],
+        "item_type": _item_type(item, category, evidence_kind),
+        "category": category,
+        "severity": severity,
+        "evidence_kind": evidence_kind,
+        "risk_status": risk_status,
+        "summary": _summary(item, matched),
+        "enterprise_impact": _enterprise_impact(category, severity),
+        "confidence": "high" if item.get("html_url") else "medium",
+    }
+
+
 def _category(matched: list[str], text: str) -> str:
-    if any(keyword in matched for keyword in ("security", "leak")) or any(word in text for word in ("token", "secret", "api_key", "credential")):
+    if any(keyword in matched for keyword in ("security", "leak")) or any(word in text for word in SECURITY_TERMS):
         return "security"
     if any(keyword in matched for keyword in ("performance", "slow")):
         return "performance"
@@ -93,6 +128,17 @@ def _category(matched: list[str], text: str) -> str:
 def _evidence_kind(item: dict[str, Any], category: str, matched: list[str], text: str) -> str:
     title = str(item.get("title") or "").lower()
     state = str(item.get("state") or "").lower()
+    is_pr = _is_pr(item)
+    if is_pr and category == "security":
+        if _is_merged_pr(item):
+            return "merged_security_fix"
+        if state == "open":
+            return "pending_fix_pr"
+        return "security_signal_fixed"
+    if is_pr and _starts_with(title, FEATURE_PREFIXES):
+        return "feature_enhancement"
+    if is_pr and _starts_with(title, DOCS_PREFIXES):
+        return "maintenance_signal"
     if category == "security":
         return "security_signal"
     if any(word in title for word in ("fix", "fixed", "resolve", "resolved")) and state in {"closed", "merged"}:
@@ -112,6 +158,10 @@ def _evidence_kind(item: dict[str, Any], category: str, matched: list[str], text
 
 def _risk_status(item: dict[str, Any], evidence_kind: str) -> str:
     state = str(item.get("state") or "").lower()
+    if evidence_kind in {"merged_security_fix", "security_signal_fixed"}:
+        return "fixed_but_requires_verification"
+    if evidence_kind == "pending_fix_pr":
+        return "pending_fix"
     if evidence_kind == "feature_enhancement":
         return "not_a_risk"
     if evidence_kind == "merged_fix_pr" or state in {"merged"}:
@@ -124,8 +174,10 @@ def _risk_status(item: dict[str, Any], evidence_kind: str) -> str:
 
 
 def _severity(category: str, matched: list[str], text: str, risk_status: str) -> str:
-    if risk_status in {"fixed", "not_a_risk"}:
+    if risk_status in {"fixed", "not_a_risk", "fixed_but_requires_verification"}:
         return "low"
+    if risk_status == "pending_fix":
+        return "medium" if category == "security" else "low"
     if category == "security":
         return "high"
     if "breaking" in matched or "not working" in matched or "data" in text:
@@ -133,6 +185,82 @@ def _severity(category: str, matched: list[str], text: str, risk_status: str) ->
     if category in {"bug", "performance"}:
         return "medium"
     return "low"
+
+
+def _is_non_risk_pr(item: dict[str, Any], text: str) -> bool:
+    if not _is_pr(item):
+        return False
+    title = str(item.get("title") or "").lower().strip()
+    title_has_security = any(term in title for term in SECURITY_TERMS)
+    if _starts_with(title, DOCS_PREFIXES):
+        return not title_has_security
+    if _starts_with(title, FEATURE_PREFIXES):
+        return not title_has_security
+    if any(term in text for term in SECURITY_TERMS):
+        return False
+    return False
+
+
+def _is_positive_maintenance_pr(item: dict[str, Any], text: str) -> bool:
+    if not _is_pr(item):
+        return False
+    title = str(item.get("title") or "").lower()
+    if "security" in text or any(term in text for term in ("cve", "ghsa", "injection", "leak", "token", "shell", "unsafe", "yaml.load")):
+        return False
+    return ("unit test coverage" in title) or ("coverage" in title and "test" in title)
+
+
+def _is_pr(item: dict[str, Any]) -> bool:
+    return item.get("_source_type") == "pull_request" or bool(item.get("pull_request")) or "/pull/" in str(item.get("html_url", ""))
+
+
+def _is_merged_pr(item: dict[str, Any]) -> bool:
+    value = item.get("merged")
+    if isinstance(value, bool):
+        return value
+    return bool(item.get("merged_at")) or str(item.get("state") or "").lower() == "merged"
+
+
+def _labels(item: dict[str, Any]) -> list[str]:
+    labels = item.get("labels") or []
+    result = []
+    for label in labels:
+        if isinstance(label, dict):
+            result.append(str(label.get("name") or ""))
+        else:
+            result.append(str(label))
+    return [label for label in result if label]
+
+
+def _author(item: dict[str, Any]) -> str:
+    user = item.get("user")
+    if isinstance(user, dict):
+        return str(user.get("login") or "")
+    return str(user or "")
+
+
+def _item_type(item: dict[str, Any], category: str, evidence_kind: str) -> str:
+    if _is_pr(item):
+        if category == "security" or evidence_kind in {"merged_security_fix", "pending_fix_pr", "security_signal_fixed"}:
+            return "Security PR"
+        if evidence_kind == "feature_enhancement":
+            return "Feature Request"
+        if evidence_kind == "maintenance_signal":
+            return "Maintenance PR"
+        return "PR"
+    return "Issue"
+
+
+def _state_source(item: dict[str, Any]) -> str:
+    if _is_pr(item) and item.get("state") and ("merged_at" in item or "merged" in item):
+        return "github_api"
+    if not _is_pr(item) and item.get("state"):
+        return "github_api"
+    return "title_heuristic"
+
+
+def _starts_with(title: str, prefixes: tuple[str, ...]) -> bool:
+    return any(title.startswith(prefix + ":") or title.startswith(prefix + "(") or title.startswith(prefix + " ") for prefix in prefixes)
 
 
 def _summary(item: dict[str, Any], matched: list[str]) -> str:

@@ -11,6 +11,7 @@ def evaluate_enterprise_fit(
     architecture: dict[str, Any],
     negative_signals: dict[str, Any],
     company_profile: dict[str, Any],
+    project_archetype: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     company = company_profile.get("company", {}) if isinstance(company_profile.get("company"), dict) else {}
     metadata = context.get("metadata", {}) if isinstance(context.get("metadata"), dict) else {}
@@ -24,47 +25,58 @@ def evaluate_enterprise_fit(
     ]
     risk_level = "high" if negative_signals.get("enterprise_blockers") or high_evidence else "medium" if negative_signals.get("maturity_risks") else "low"
     maturity_penalty = bool(high_evidence or negative_signals.get("enterprise_blockers"))
-    return {
-        "relevance_to_company": _relevance(company, metadata, readme),
-        "applicable_scenarios": _scenarios(company, readme),
-        "company_direction_fit": {
+    archetype = (project_archetype or {}).get("primary", "unknown")
+    if archetype == "gui_agent":
+        company_direction_fit = {
+            "ai_gui_agent_automation": "AI Agent / GUI Agent 自动化：强相关，适合观察桌面任务自动执行和多模态操作能力。",
+            "mcp_tool_ecosystem": "MCP 工具生态：中高相关，需验证工具权限、白名单和审计能力。",
+            "workflow_automation": "工作流自动化：中高相关，可用于非敏感重复桌面流程的 PoC。",
+            "coding_agent_context": "Coding Agent 上下文增强：间接相关，主要价值在工具执行和环境交互，不是代码知识图谱。",
+            "business_understanding_layer": "业务理解编译层 / RAG：弱到中等相关，需要另接知识库或流程语义层。",
+        }
+        landing_scenarios = ["非敏感桌面任务自动化", "浏览器操作验证", "GUI Agent 执行链路评估", "MCP 工具权限模型 PoC", "受控环境下的人机协作自动化"]
+        direct_blockers = ["桌面自动化权限过高", "工具执行边界不清", "缺少企业权限审计", "多租户隔离不足", "安全修复历史需复核", "生产环境误操作风险"]
+        action_plan = {
+            "poc_scope": "仅在完全离线或受控网络中，用非敏感桌面任务验证 GUI Agent 执行链路。",
+            "required_checks": [
+                "验证模型 provider 是否可替换为企业批准模型",
+                "验证浏览器/终端/文件系统权限边界",
+                "验证日志是否包含敏感数据",
+                "验证 MCP 工具权限和白名单机制",
+                "验证高危操作是否支持人工确认/审批中断",
+                "复核安全 issue 和修复版本",
+            ],
+            "integration_design": ["私有模型 / 受控 API", "工具权限白名单", "日志脱敏与审计", "人工确认断点", "非敏感任务沙箱"],
+            "security_checklist": ["禁止上传桌面截图或内部数据到未批准第三方", "限制 shell/browser/filesystem 权限", "记录可审计操作日志", "验证 secret 不进入 prompt/log"],
+            "estimated_effort": "1-2 人日资料复核；GUI Agent PoC 建议 3-7 人日。",
+            "go_no_go_criteria": [
+                "Go：支持完全本地/私有模型，工具权限可白名单控制，日志脱敏可验证，高危操作可人工确认，安全 issue 已复核。",
+                "No-Go：需要上传桌面截图/内部数据到第三方，无法限制 shell/browser/filesystem 权限，无日志审计，任务执行稳定性不可复现。",
+            ],
+        }
+    else:
+        company_direction_fit = {
             "coding_agent_context": "可作为 Coding Agent 上下文增强的候选方向，但需验证图谱构建质量。",
             "business_understanding_layer": "可探索为开发前业务理解编译层，把代码/文档结构化为可查询资产。",
             "enterprise_knowledge_graph": "可与企业知识库 / GraphRAG / 知识图谱方向形成概念互补。",
             "claude_codex_workflow": "可验证 Claude Code / Codex 查询图谱后的上下文压缩效果。",
             "neo4j_pgvector_obsidian_llm_wiki": "优先验证 Neo4j 或本地知识库导出，再考虑 pgvector/Obsidian/llm_wiki 联动。",
-        },
-        "landing_scenarios": [
+        }
+        landing_scenarios = [
             "内部代码库理解",
             "项目交接/维护",
             "开发前业务理解",
             "Coding Agent 上下文压缩",
             "行业项目知识资产结构化",
-        ],
-        "direct_blockers": [
+        ]
+        direct_blockers = [
             "权限审计缺失",
             "多租户隔离缺失",
             "secret/path 泄露风险需复核",
             "企业部署文档不足",
             "输出结果可控性待验证",
-        ],
-        "integration_paths": _integration_paths(company, architecture),
-        "required_adaptations": _adaptations(private_deploy, docs_ready),
-        "deployment_feasibility": "需要进一步验证" if maturity_penalty else "较高" if private_deploy or repo_structure.get("deployment_files") else "需要进一步验证",
-        "data_security_considerations": _security_considerations(architecture),
-        "permission_audit_considerations": "需要确认权限模型、日志审计和租户隔离能力。",
-        "fit_with_existing_stack": _stack_fit(company, repo_structure),
-        "short_term_action": "先完成安全/源码证据复核；不要直接进入生产依赖。" if maturity_penalty else "阅读 README 与 examples，完成本地只读验证；不要直接进入生产依赖。",
-        "medium_term_action": "仅在阻塞风险清除后再做 PoC，重点验证私有化部署、权限边界和二开成本。" if maturity_penalty else "若核心能力匹配，可做 PoC，重点验证私有化部署、权限边界和二开成本。",
-        "not_recommended_if": company.get("unacceptable_risks", []),
-        "final_rating": {
-            "technical_value": 4 if docs_ready else 3,
-            "enterprise_fit": 2 if maturity_penalty else 4 if private_deploy else 3,
-            "implementation_feasibility": 2 if maturity_penalty else 4 if repo_structure.get("package_files") else 3,
-            "strategic_relevance": 4,
-            "risk_level": risk_level,
-        },
-        "enterprise_action_plan": {
+        ]
+        action_plan = {
             "poc_scope": "仅使用非敏感测试仓库验证核心流程，不接入客户数据或内部生产代码。",
             "required_checks": [
                 "选择一个非敏感内部 demo repo",
@@ -84,7 +96,30 @@ def evaluate_enterprise_fit(
                 "Go：核心流程可本地闭环、无高危安全 issue、权限/数据边界清晰。",
                 "No-go：凭据泄露、内部代码外传、核心模块缺失或维护信号不足。",
             ],
+        }
+    return {
+        "relevance_to_company": _relevance(company, metadata, readme),
+        "applicable_scenarios": _scenarios(company, readme),
+        "company_direction_fit": company_direction_fit,
+        "landing_scenarios": landing_scenarios,
+        "direct_blockers": direct_blockers,
+        "integration_paths": _integration_paths(company, architecture),
+        "required_adaptations": _adaptations(private_deploy, docs_ready),
+        "deployment_feasibility": "需要进一步验证" if maturity_penalty else "较高" if private_deploy or repo_structure.get("deployment_files") else "需要进一步验证",
+        "data_security_considerations": _security_considerations(architecture),
+        "permission_audit_considerations": "需要确认权限模型、日志审计和租户隔离能力。",
+        "fit_with_existing_stack": _stack_fit(company, repo_structure),
+        "short_term_action": "先完成安全/源码证据复核；不要直接进入生产依赖。" if maturity_penalty else "阅读 README 与 examples，完成本地只读验证；不要直接进入生产依赖。",
+        "medium_term_action": "仅在阻塞风险清除后再做 PoC，重点验证私有化部署、权限边界和二开成本。" if maturity_penalty else "若核心能力匹配，可做 PoC，重点验证私有化部署、权限边界和二开成本。",
+        "not_recommended_if": company.get("unacceptable_risks", []),
+        "final_rating": {
+            "technical_value": 4 if docs_ready else 3,
+            "enterprise_fit": 2 if maturity_penalty else 4 if private_deploy else 3,
+            "implementation_feasibility": 2 if maturity_penalty else 4 if repo_structure.get("package_files") else 3,
+            "strategic_relevance": 4,
+            "risk_level": risk_level,
         },
+        "enterprise_action_plan": action_plan,
     }
 
 

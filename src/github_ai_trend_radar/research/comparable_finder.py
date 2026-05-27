@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 
-def find_comparable_projects(context: dict[str, Any], ecosystem_context: dict[str, Any], *, max_comparables: int = 5) -> dict[str, Any]:
+def find_comparable_projects(
+    context: dict[str, Any],
+    ecosystem_context: dict[str, Any],
+    *,
+    max_comparables: int = 5,
+    project_archetype: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     target_repo = context.get("repo", "")
     target = _target_project(context, ecosystem_context)
     direct = []
@@ -14,7 +20,7 @@ def find_comparable_projects(context: dict[str, Any], ecosystem_context: dict[st
     for project in ecosystem_context.get("notable_projects", []) or []:
         if not isinstance(project, dict) or not project.get("repo") or project.get("repo") == target_repo:
             continue
-        comparable_type, reason, overlaps, differences = _comparable_type(project, context, ecosystem_context)
+        comparable_type, reason, overlaps, differences = _comparable_type(project, context, ecosystem_context, project_archetype=project_archetype)
         enriched = dict(project)
         enriched["comparable_type"] = comparable_type
         enriched["overlap_dimensions"] = overlaps
@@ -31,6 +37,8 @@ def find_comparable_projects(context: dict[str, Any], ecosystem_context: dict[st
     direct_comparables = [_comparable_from_project(project, context, ecosystem_context) for project in direct[:max_comparables]]
     adjacent_comparables = [_comparable_from_project(project, context, ecosystem_context) for project in adjacent[:max_comparables]]
     rows = [_table_row(item) for item in [target] + direct_comparables]
+    if len(direct_comparables) < 2 and adjacent_comparables:
+        rows.extend(_table_row(item) for item in _prioritize_adjacent_for_table(adjacent_comparables)[: 2 - len(direct_comparables)])
     return {
         "comparables": direct_comparables + adjacent_comparables,
         "direct_comparables": direct_comparables,
@@ -40,7 +48,7 @@ def find_comparable_projects(context: dict[str, Any], ecosystem_context: dict[st
             "columns": ["项目", "定位", "核心能力", "成熟度/热度", "企业可控性", "主要风险", "适合我司的使用方式"],
             "rows": rows[: max_comparables + 1],
         },
-        "note": "P2.3 基于 GitHub Search 与历史趋势雷达快照生成同类项目对比；结论仍需结合源码和许可证复核。",
+        "note": _comparison_note(project_archetype, direct_comparables, adjacent_comparables),
         "filtered_weak_projects": [{"repo": item.get("repo"), "reason": item.get("reason_excluded")} for item in excluded[:20]],
     }
 
@@ -92,6 +100,22 @@ def _table_row(item: dict[str, Any]) -> list[str]:
         item.get("risk", ""),
         item.get("usage", ""),
     ]
+
+
+def _comparison_note(project_archetype: dict[str, Any] | None, direct: list[dict[str, Any]], adjacent: list[dict[str, Any]]) -> str:
+    if (project_archetype or {}).get("primary") == "gui_agent" and len(direct) < 2:
+        return "直接开源竞品样本不足，本报告采用 direct + adjacent 两层对比；adjacent 仅作生态参考，不作为功能替代品。browser-use 更偏 Web automation；UI-TARS 更偏 desktop / GUI / multimodal / operator；ChromeDevTools MCP 更偏 browser debugging / coding-agent tool surface。"
+    return "P2.3 基于 GitHub Search 与历史趋势雷达快照生成同类项目对比；结论仍需结合源码和许可证复核。"
+
+
+def _prioritize_adjacent_for_table(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        items,
+        key=lambda item: (
+            0 if "chromedevtools" in str(item.get("repo", "")).lower() or "devtools" in str(item.get("description", "")).lower() else 1,
+            -int(item.get("stars") or 0),
+        ),
+    )
 
 
 def _positioning(project: dict[str, Any], ecosystem_context: dict[str, Any]) -> str:
@@ -156,7 +180,13 @@ def _usage_label(project: dict[str, Any], ecosystem_context: dict[str, Any]) -> 
     return "作为同类方案的能力边界和工程成熟度参照"
 
 
-def _comparable_type(project: dict[str, Any], context: dict[str, Any], ecosystem_context: dict[str, Any]) -> tuple[str, str, list[str], list[str]]:
+def _comparable_type(
+    project: dict[str, Any],
+    context: dict[str, Any],
+    ecosystem_context: dict[str, Any],
+    *,
+    project_archetype: dict[str, Any] | None = None,
+) -> tuple[str, str, list[str], list[str]]:
     text = " ".join(
         [
             str(project.get("repo", "")),
@@ -164,8 +194,18 @@ def _comparable_type(project: dict[str, Any], context: dict[str, Any], ecosystem
             " ".join(str(topic) for topic in project.get("topics", []) or []),
         ]
     ).lower()
-    if any(noise in text for noise in ("awesome", "prompt", "plugin directory", "skill bundle", "game agent", "api router", "notebooklm", "cybersecurity skill", "wallpaper", "router")):
-        return "excluded", "过滤：更像列表/插件目录/泛工具，非代码知识图谱或 Coding Agent 上下文增强。", [], ["项目定位不重合"]
+    if any(noise in text for noise in ("awesome", "prompt", "plugin directory", "skill bundle", "game agent", "api router", "notebooklm", "cybersecurity skill", "wallpaper", "generic router")):
+        return "excluded", "过滤：更像列表/插件目录/泛工具，非目标项目直接竞品。", [], ["项目定位不重合"]
+    archetype = (project_archetype or {}).get("primary") or ecosystem_context.get("primary_domain")
+    if archetype == "gui_agent":
+        direct_terms = ("browser-use", "browser use", "computer use", "computer-use", "gui agent", "desktop agent", "ui automation", "browser agent", "operator", "vision agent")
+        adjacent_terms = ("mcp", "devtools", "agent runtime", "agent framework", "tool server", "browser automation", "desktop automation")
+        overlaps = [term for term in direct_terms + adjacent_terms if term in text]
+        if sum(1 for term in direct_terms if term in text) >= 1 and any(term in text for term in ("agent", "automation", "operator", "browser", "desktop", "computer")):
+            return "direct", "同为 GUI Agent / Computer Use / browser-desktop automation 方向。", overlaps or ["GUI Agent"], ["需复核权限边界、模型 provider 和执行稳定性"]
+        if any(term in text for term in adjacent_terms):
+            return "adjacent", "相邻方向：MCP/browser tooling 或 Agent runtime 生态参照。", overlaps, ["不是完整 GUI Agent 桌面执行栈"]
+        return "excluded", "过滤：缺少 GUI Agent / Computer Use / browser automation 重合点。", [], ["与桌面自动化执行链路不重合"]
     direct_terms = ("code knowledge graph", "codebase graph", "repository knowledge graph", "code graph", "repo map", "codebase rag", "graphrag code")
     adjacent_terms = ("coding agent memory", "code intelligence", "claude code context", "codex context", "agent memory", "graph rag", "knowledge graph")
     overlaps = [term for term in direct_terms + adjacent_terms if term in text]

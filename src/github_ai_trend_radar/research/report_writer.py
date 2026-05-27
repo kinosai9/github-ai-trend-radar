@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from github_ai_trend_radar.research.models import ResearchOptions, repo_slug
+from github_ai_trend_radar.research.report_polish import polish_report_text
 from github_ai_trend_radar.storage.files import load_json, save_json
 
 
@@ -36,6 +37,10 @@ def write_research_outputs(payload: dict[str, Any], options: ResearchOptions, *,
 
 
 def render_markdown(payload: dict[str, Any]) -> str:
+    return polish_report_text(_render_markdown_v2(payload))
+
+
+def _render_markdown_v2(payload: dict[str, Any]) -> str:
     context = payload.get("context", {})
     metadata = context.get("metadata", {}) if isinstance(context.get("metadata"), dict) else {}
     repo = payload.get("repo", context.get("repo", ""))
@@ -50,12 +55,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
     ecosystem = payload.get("ecosystem_context", {})
     comparison = payload.get("comparison", {})
     diagrams = payload.get("diagrams", {})
-    return f"""# 项目专项深度研究报告：{repo}
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    return _compose_report_markdown(payload)
+    markdown = f"""# 项目专项深度研究报告：{repo}
 
 ## 1. 情况摘要
 
 - 最终结论：{verdict.get('one_sentence') or _one_line_judgement(payload)}
 - 推荐动作：{_action_label(verdict.get('recommendation', 'watch'))}
+- 项目类型：{_archetype_label(archetype.get('primary', 'unknown'))}
+- 识别置信度：{archetype.get('confidence', 'low')}
+- 类型证据：{'; '.join(str(item) for item in archetype.get('evidence', [])[:6]) or '未识别'}
 - 技术潜力 / 社区信号 / 开源工程成熟度 / 企业就绪度 / 实施可行性 / 风险等级：{verdict.get('technical_potential', 'unknown')} / {verdict.get('community_signal', 'unknown')} / {verdict.get('open_source_engineering_maturity', verdict.get('engineering_maturity', 'unknown'))} / {verdict.get('enterprise_readiness', verdict.get('enterprise_fit', 'unknown'))} / {verdict.get('implementation_feasibility', 'unknown')} / {verdict.get('risk_level', 'unknown')}
 
 | 评分项 | 结论 |
@@ -67,6 +77,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
 | 实施可行性 | {verdict.get('implementation_feasibility', 'unknown')} |
 | 风险等级 | {verdict.get('risk_level', 'unknown')} |
 | 推荐动作 | {_action_label(verdict.get('recommendation', 'watch'))} |
+
+> 技术潜力表示是否值得跟踪技术路线；开源工程成熟度表示项目自身工程完整性；企业就绪度表示是否具备企业交付所需的权限、审计、隔离和运维能力；实施可行性表示我司短期 PoC 与二开可行性。
 
 - 投入判断：{_investment_decision(payload)}
 - 是否值得继续关注：建议继续关注，但以本地 PoC 和权限/部署验证为前置。
@@ -118,12 +130,16 @@ def render_markdown(payload: dict[str, Any]) -> str:
 - 文件类型统计：
 {_file_type_table(structure.get('file_type_counts', {}))}
 - 入口模块：{', '.join(structure.get('entrypoints', []) or ['未识别'])}
+- Monorepo Workspace：
+{_workspace_table(structure.get('monorepo_structure', {}))}
 - 核心模块：{', '.join(_module_paths(architecture.get('core_modules', []))[:12] or ['未识别'])}
 - 模块角色：
 {_module_role_table(architecture.get('module_roles', {}))}
-- Graph Pipeline：{_pipeline_summary(architecture.get('graph_pipeline', {}))}
+- {_architecture_summary_label(archetype)}：{_architecture_summary(architecture, archetype)}
 - 扩展点：{', '.join(architecture.get('extension_points', [])[:8] or ['未识别'])}
 - 依赖关系：{', '.join(architecture.get('external_dependencies', [])[:10] or ['未识别'])}
+
+### {_diagram_title(archetype)}
 
 ```mermaid
 {diagrams.get('architecture', '')}
@@ -131,13 +147,11 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 ## 7. 核心技术与实现机制
 
-- 关键机制：基于 README、目录结构、入口模块和 LLM 分阶段分析做综合判断。
-- 解决的问题：{metadata.get('description', '需要结合 README 进一步判断。')}
-- 技术路线：{', '.join(structure.get('main_languages', []) or ['未识别'])}
-- 创新点：信息不足，需在 P2.2 中结合源码摘要判断。
-- 局限：不执行代码、不安装依赖，本报告只做只读分析。
+{_implementation_mechanism(payload)}
 
 ## 8. 横向对比分析
+
+{comparison.get('note', '') if isinstance(comparison, dict) else ''}
 
 {_comparison_table(comparison)}
 
@@ -151,6 +165,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {_keyword_table(negative.get('keyword_counts', []))}
 - 未解决风险：
 {_negative_evidence_table(negative, group='unresolved')}
+- 待合并修复：
+{_negative_evidence_table(negative, group='pending')}
 - 已修复但需复核：
 {_negative_evidence_table(negative, group='fixed')}
 - 用户抱怨 / 使用限制：
@@ -159,7 +175,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {_negative_evidence_table(negative, group='positive')}
 - 维护风险：{', '.join(negative.get('maintenance_risks', []) or ['未发现明确维护风险'])}
 - 安全风险：{_inline_titles(negative.get('security_risks', [])) or '未发现明确安全 issue 样本'}
-- 企业落地阻塞点：{', '.join(negative.get('enterprise_blockers', []) or ['暂未识别'])}
+- 企业落地阻塞点：{_enterprise_blockers_text(payload)}
 
 ## 10. 企业落地适配
 
@@ -191,6 +207,230 @@ def render_markdown(payload: dict[str, Any]) -> str:
 - 不建议投入的条件：{', '.join(enterprise.get('not_recommended_if', []) or verdict.get('blocking_risks', []) or ['无法确认许可证、权限边界或部署可控性'])}
 - 是否加入长期 watchlist：建议加入，除非后续 PoC 发现安全或维护风险不可接受。
 """
+    return polish_report_text(markdown)
+
+
+def _compose_report_markdown(payload: dict[str, Any]) -> str:
+    context = payload.get("context", {}) if isinstance(payload.get("context"), dict) else {}
+    metadata = context.get("metadata", {}) if isinstance(context.get("metadata"), dict) else {}
+    repo = str(payload.get("repo") or context.get("repo") or "")
+    enterprise = payload.get("enterprise_fit", {}) if isinstance(payload.get("enterprise_fit"), dict) else {}
+    rating = enterprise.get("final_rating", {}) if isinstance(enterprise.get("final_rating"), dict) else {}
+    llm = payload.get("llm_analysis", {}) if isinstance(payload.get("llm_analysis"), dict) else {}
+    final_llm = _llm_stage_data(llm, "final_report_synthesis")
+    verdict = payload.get("final_verdict", {}) if isinstance(payload.get("final_verdict"), dict) else {}
+    structure = payload.get("repo_structure", {}) if isinstance(payload.get("repo_structure"), dict) else {}
+    architecture = payload.get("architecture", {}) if isinstance(payload.get("architecture"), dict) else {}
+    negative = payload.get("negative_signals", {}) if isinstance(payload.get("negative_signals"), dict) else {}
+    ecosystem = payload.get("ecosystem_context", {}) if isinstance(payload.get("ecosystem_context"), dict) else {}
+    comparison = payload.get("comparison", {}) if isinstance(payload.get("comparison"), dict) else {}
+    diagrams = payload.get("diagrams", {}) if isinstance(payload.get("diagrams"), dict) else {}
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    evidence = payload.get("evidence", {}) if isinstance(payload.get("evidence"), dict) else {}
+    confidence = payload.get("analysis_confidence", {}) if isinstance(payload.get("analysis_confidence"), dict) else {}
+
+    return f"""# 项目专项深度研究报告：{repo}
+
+## 1. 执行摘要
+
+- 项目一句话：{_project_one_liner(payload)}
+- 核心能力：
+{_bullets(_core_capabilities(payload))}
+- 主要解决的问题：{_problem_solved(payload)}
+- 为什么值得关注：{_why_it_matters(payload)}
+- 当前不适合直接落地的原因：
+{_bullets(_why_not_direct_landing(payload))}
+- 最终结论：{verdict.get('one_sentence') or _one_line_judgement(payload)}
+- 推荐动作：{_action_label(verdict.get('recommendation', 'watch'))}
+- 项目类型：{_archetype_label(archetype.get('primary', 'unknown'))}
+- 识别置信度：{archetype.get('confidence', 'low')}
+- 类型证据：{'; '.join(str(item) for item in archetype.get('evidence', [])[:6]) or '未识别'}
+
+| 评分项 | 结论 |
+| --- | --- |
+| 技术潜力 | {verdict.get('technical_potential', 'unknown')} |
+| 社区信号 | {verdict.get('community_signal', 'unknown')} |
+| 开源工程成熟度 | {verdict.get('open_source_engineering_maturity', verdict.get('engineering_maturity', 'unknown'))} |
+| 企业就绪度 | {verdict.get('enterprise_readiness', verdict.get('enterprise_fit', 'unknown'))} |
+| 实施可行性 | {verdict.get('implementation_feasibility', 'unknown')} |
+| 风险等级 | {_risk_level_label(verdict.get('risk_level', 'unknown'))} |
+| 推荐动作 | {_action_label(verdict.get('recommendation', 'watch'))} |
+
+> 技术潜力表示是否值得跟踪技术路线；开源工程成熟度表示项目自身工程完整性；企业就绪度表示是否具备企业交付所需的权限、审计、隔离和运维能力；实施可行性表示我司短期 PoC 与二开可行性。
+
+- 投入判断：{_investment_decision(payload)}
+- 是否值得继续关注：建议继续关注技术路线，但投入前必须完成安全、权限、审计和模型边界验证。
+- 是否建议深研/试用/暂缓：{enterprise.get('short_term_action', '建议先做资料复核。')}
+- 企业落地结论：{enterprise.get('deployment_feasibility', '信息不足')}
+- 报告模式：{_report_mode_text(llm)}
+- LLM 分析状态：{_llm_status_text(llm)}
+{_llm_final_block(final_llm)}
+
+## 2. 关键发现
+
+{_bullets(_key_findings(payload))}
+
+### 证据看板
+
+- 正向证据：
+{_bullets(evidence.get('positive', []) or ['暂无明确正向证据。'])}
+- 待验证信息：
+{_bullets(evidence.get('uncertainty', []) or ['暂无额外待验证项。'])}
+- 信息缺口：
+{_bullets(_information_gaps(payload))}
+
+## 3. 企业落地判断
+
+- 企业落地结论：{enterprise.get('deployment_feasibility', '信息不足')}
+- 私有化部署可行性：{enterprise.get('private_deployment_feasibility', enterprise.get('deployment_feasibility', '信息不足'))}
+- 与我司方向的相关性：{enterprise.get('fit_with_existing_stack', _company_fit_fallback(archetype))}
+- 公司方向相关性：
+{_action_plan_table(enterprise.get('company_direction_fit', {}))}
+- 可落地场景：
+{_bullets(enterprise.get('landing_scenarios', []) or enterprise.get('applicable_scenarios', []) or _landing_scenarios(payload))}
+- 不可直接落地原因：
+{_bullets(enterprise.get('direct_blockers', []) or _why_not_direct_landing(payload))}
+- 推荐落地路径：{enterprise.get('medium_term_action', '仅限隔离环境安全验证型 PoC。')}
+- 评分：技术价值 {rating.get('technical_value', '')}/5，企业适配 {rating.get('enterprise_fit', '')}/5，可实施性 {rating.get('implementation_feasibility', '')}/5，战略相关 {rating.get('strategic_relevance', '')}/5，风险 {_risk_level_label(rating.get('risk_level', ''))}
+- 质量闸门：{_quality_gate_text(payload)}
+
+### GUI Agent 企业安全检查矩阵
+
+{_enterprise_security_matrix(payload)}
+
+### 最小 PoC 路径
+
+{_bullets(_minimum_poc_path(payload))}
+
+### Go / No-Go 标准
+
+{_go_no_go_table(enterprise)}
+
+## 4. 项目能力与实现机制
+
+### 代码结构摘要
+
+- 仓库形态：{_repo_shape_summary(payload)}
+- 主要分层：
+{_bullets(_layer_summary(payload))}
+- 源码分析置信度：{confidence.get('architecture', 'medium')}，证据来自 README、package/workspace 文件、目录树和核心源码路径。
+- {_architecture_summary_label(archetype)}：{_architecture_summary(architecture, archetype)}
+
+### 核心模块角色表
+
+{_core_module_role_table(payload)}
+
+### {_diagram_title(archetype)}
+
+```mermaid
+{diagrams.get('architecture', '')}
+```
+
+### 核心技术与实现机制
+
+{_implementation_mechanism(payload)}
+
+## 5. 生态位置与横向对比
+
+- 所属技术方向：{ecosystem.get('primary_domain', 'other')}
+- 当前生态趋势：{ecosystem.get('market_stage', 'unclear')}
+- 项目位置：{ecosystem.get('target_project_position', '')}
+- 近期动态：{ecosystem.get('recent_dynamics', '')}
+{comparison.get('note', '') if isinstance(comparison, dict) else ''}
+
+{_comparison_table(comparison)}
+
+### 相邻生态参考
+
+{_adjacent_comparables(comparison)}
+
+## 6. 负面信息与限制
+
+- 主要风险摘要：{_risk_summary(payload)}
+- 安全历史风险摘要：安全相关 PR/Issue 不等于当前未解决风险；已合并修复仍需在企业 PoC 中复核影响面。
+
+### 当前未解决风险
+
+{_negative_evidence_table(negative, group='unresolved', limit=8)}
+
+### 待合并修复
+
+{_negative_evidence_table(negative, group='pending', limit=8)}
+
+### 已修复但需复核
+
+{_negative_evidence_table(negative, group='fixed', limit=8)}
+
+### 用户抱怨 / 使用限制
+
+{_negative_evidence_table(negative, group='complaint', limit=8)}
+
+### 正向维护信号
+
+{_negative_evidence_table(negative, group='positive', limit=8)}
+
+### 企业影响判断
+
+{_enterprise_blockers_text(payload)}
+
+## 7. 技术附录
+
+<details>
+<summary>展开技术附录</summary>
+
+### 项目基本信息
+
+- GitHub 链接：{metadata.get('html_url', f'https://github.com/{repo}')}
+- Stars/Forks/Issues：{metadata.get('stargazers_count', '')} / {metadata.get('forks_count', '')} / {metadata.get('open_issues_count', '')}
+- License：{_license(metadata)}
+- Languages：{', '.join(structure.get('main_languages', []) or [])}
+- Topics：{', '.join(metadata.get('topics', []) or [])}
+- 最近更新：{metadata.get('pushed_at', '')}
+- Release 情况：{len(context.get('releases', []) or [])} 个 release 样本
+
+### 文件类型统计
+
+{_file_type_table(structure.get('file_type_counts', {}))}
+
+### 入口模块列表
+
+{_bullets(structure.get('entrypoints', []) or ['未识别'])}
+
+### Monorepo Workspace 明细
+
+{_workspace_table(structure.get('monorepo_structure', {}))}
+
+### 依赖关系
+
+{_bullets(architecture.get('external_dependencies', [])[:30] or ['未识别'])}
+
+### Issue keyword counts
+
+{_keyword_table(negative.get('keyword_counts', []))}
+
+### 原始 comparable 列表
+
+{_notable_projects(ecosystem)}
+
+### 完整 Issue / PR evidence
+
+{_negative_evidence_table(negative, limit=50)}
+
+### 思维导图
+
+```mermaid
+{diagrams.get('mindmap', '')}
+```
+
+</details>
+
+### 结论与行动计划
+
+- 立即行动：{'; '.join(verdict.get('next_actions', []) or [enterprise.get('short_term_action', '')])}
+- 后续观察：关注 release、issue 热点、权限/审计能力和企业部署案例。
+- 不建议投入的条件：{', '.join(enterprise.get('not_recommended_if', []) or verdict.get('blocking_risks', []) or ['无法确认许可证、权限边界或部署可控性'])}
+- 是否加入长期 watchlist：建议加入，除非后续 PoC 发现安全或维护风险不可接受。
+"""
 
 
 def render_html(payload: dict[str, Any], markdown: str) -> str:
@@ -216,6 +456,8 @@ def render_html(payload: dict[str, Any], markdown: str) -> str:
     table {{ border-collapse:collapse; width:100%; margin:12px 0; }}
     th,td {{ border:1px solid #d8d1c2; padding:8px; vertical-align:top; }}
     th {{ background:#f1efe8; }}
+    details {{ border:1px solid #ded7ca; background:#fbfaf5; padding:12px 14px; margin:18px 0; }}
+    summary {{ cursor:pointer; font-weight:700; }}
     .toc {{ background:#f8f6ef; border:1px solid #ded7ca; padding:14px 18px; margin:18px 0; }}
     .meta {{ color:#667085; font-size:13px; }}
     .section {{ border-top:1px solid #e7decd; padding-top:8px; }}
@@ -229,7 +471,7 @@ def render_html(payload: dict[str, Any], markdown: str) -> str:
 <body><main><article>
 <div class="meta">本地私有尽调报告 · 不发布到 GitHub Pages · 生成时间 {html.escape(str(payload.get('generated_at', '')))}</div>
 <div class="toc"><strong>目录</strong><ol>
-<li>情况摘要</li><li>关键发现</li><li>项目基本信息</li><li>广度搜索与生态位置</li><li>代码结构与架构拆解</li><li>核心技术与实现思路</li><li>横向对比分析</li><li>负面信息与限制</li><li>企业落地适配</li><li>思维导图</li><li>结论与建议</li>
+<li>执行摘要</li><li>关键发现</li><li>企业落地判断</li><li>项目能力与实现机制</li><li>生态位置与横向对比</li><li>负面信息与限制</li><li>技术附录</li>
 </ol></div>
 {body}
 </article></main></body></html>"""
@@ -376,21 +618,21 @@ def _keyword_table(items: list[dict[str, Any]]) -> str:
     return "\n".join(rows)
 
 
-def _negative_evidence_table(negative: dict[str, Any], group: str | None = None) -> str:
+def _negative_evidence_table(negative: dict[str, Any], group: str | None = None, *, limit: int = 8) -> str:
     evidence = negative.get("negative_evidence", []) if isinstance(negative, dict) else []
     if group:
         evidence = [item for item in evidence if _evidence_group(item) == group]
     if not evidence:
         return "暂无 issue/PR 级负面证据。"
     rows = ["| 证据 | 类型 | 状态 | 严重度 | 企业影响 | 置信度 |", "| --- | --- | --- | --- | --- | --- |"]
-    for item in evidence[:8]:
+    for item in evidence[:limit]:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title", ""))
         url = str(item.get("url", ""))
         evidence_link = f"[{title}]({url})" if url else title
         rows.append(
-            f"| {evidence_link} | {item.get('evidence_kind', item.get('category', ''))} | {item.get('risk_status', '')} | {item.get('severity', '')} | {item.get('enterprise_impact', '')} | {item.get('confidence', '')} |"
+            f"| {evidence_link} | {_evidence_type_label(item)} | {_evidence_status_label(item)} | {_severity_label(item.get('severity', ''))} | {item.get('enterprise_impact', '')} | {_confidence_label(item.get('confidence', ''))} |"
         )
     return "\n".join(rows)
 
@@ -404,6 +646,274 @@ def _action_plan_table(plan: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _enterprise_blockers_text(payload: dict[str, Any]) -> str:
+    negative = payload.get("negative_signals", {}) if isinstance(payload.get("negative_signals"), dict) else {}
+    verdict = payload.get("final_verdict", {}) if isinstance(payload.get("final_verdict"), dict) else {}
+    blockers = list(negative.get("enterprise_blockers", []) or [])
+    if blockers:
+        return "；".join(str(item) for item in blockers)
+    if verdict.get("enterprise_readiness") == "low" or verdict.get("risk_level") == "high":
+        return "；".join(
+            [
+                "高权限桌面/浏览器/文件系统操作缺少白名单控制",
+                "缺少权限审计与日志脱敏",
+                "多租户隔离不足",
+                "安全修复历史需逐项复核",
+                "模型 provider 和截图/上下文上传边界需验证",
+                "高危操作缺少人工确认或审批中断机制",
+            ]
+        )
+    return "暂无明确阻塞点，但仍需在 PoC 中复核权限、数据和部署边界。"
+
+
+def _project_one_liner(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    context = payload.get("context", {}) if isinstance(payload.get("context"), dict) else {}
+    description = (context.get("metadata", {}) or {}).get("description", "") if isinstance(context.get("metadata"), dict) else ""
+    if archetype.get("primary") == "gui_agent":
+        return "该项目是一个面向 GUI / Browser / Desktop / Terminal 操作的多模态 Agent 桌面应用与运行时项目。"
+    if archetype.get("primary") == "code_knowledge_graph":
+        return "该项目围绕代码库知识图谱、Repo Context 或 GraphRAG 能力，帮助 Agent 理解代码资产。"
+    return description or _one_line_judgement(payload)
+
+
+def _core_capabilities(payload: dict[str, Any]) -> list[str]:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return [
+            "多模态 GUI Agent / Computer Use 能力",
+            "桌面、浏览器、终端、文件系统等真实环境操作",
+            "Model Provider / VLM / LLM 接入",
+            "Action Parser / Operator 执行链路",
+            "MCP / Tool 扩展与工具调用面",
+        ]
+    if archetype.get("primary") == "code_knowledge_graph":
+        return ["代码结构解析", "知识图谱构建", "Repo Context / GraphRAG 检索", "Coding Agent 上下文增强"]
+    architecture = payload.get("architecture", {}) if isinstance(payload.get("architecture"), dict) else {}
+    modules = [str(item.get("role") or item.get("path")) for item in architecture.get("core_modules", [])[:5] if isinstance(item, dict)]
+    return modules or ["核心能力仍需结合 README 和源码进一步确认。"]
+
+
+def _problem_solved(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return "解决传统 LLM 难以稳定操作真实软件环境的问题，把自然语言任务、视觉感知、模型推理和真实环境操作连接起来。"
+    if archetype.get("primary") == "code_knowledge_graph":
+        return "解决 Coding Agent 缺少代码库结构化上下文的问题，把源码、依赖和模块关系转成可检索、可推理的知识层。"
+    context = payload.get("context", {}) if isinstance(payload.get("context"), dict) else {}
+    return (context.get("metadata", {}) or {}).get("description", "需要结合源码和 README 继续确认。")
+
+
+def _why_it_matters(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    metadata = (payload.get("context", {}) or {}).get("metadata", {}) if isinstance(payload.get("context"), dict) else {}
+    stars = metadata.get("stargazers_count", "")
+    if archetype.get("primary") == "gui_agent":
+        return f"GUI Agent / Computer Use 正在成为企业自动化和 Agent 工具执行的重要方向；该项目具备较高关注度（Star {stars}），适合作为技术路线和安全边界研究对象。"
+    if archetype.get("primary") == "code_knowledge_graph":
+        return "代码知识图谱和 Repo Context 是 Coding Agent 可靠落地的关键基础设施，值得跟踪其真实解析质量和可集成性。"
+    return "项目在趋势候选中具备关注价值，但真实落地价值仍需用 PoC 验证。"
+
+
+def _why_not_direct_landing(payload: dict[str, Any]) -> list[str]:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return [
+            "高权限桌面、浏览器、终端和文件系统操作需要明确白名单边界。",
+            "日志脱敏、权限审计、多租户隔离和人工确认断点尚需企业级验证。",
+            "安全修复历史需要逐项复核，确认是否覆盖企业 PoC 的真实威胁面。",
+            "模型 provider、截图和上下文上传边界必须先验证。",
+        ]
+    verdict = payload.get("final_verdict", {}) if isinstance(payload.get("final_verdict"), dict) else {}
+    return [str(item) for item in verdict.get("blocking_risks", [])[:5]] or ["部署、权限、数据边界和维护状态需要进一步验证。"]
+
+
+def _information_gaps(payload: dict[str, Any]) -> list[str]:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    gaps = []
+    if archetype.get("primary") == "gui_agent":
+        gaps.extend(
+            [
+                "未验证是否支持完全离线或受控网络下运行。",
+                "未验证是否可替换为企业批准模型并禁止截图外传。",
+                "未验证 Shell / Browser / Filesystem / MCP 工具权限是否可白名单控制。",
+                "未验证日志脱敏、审计留痕和高危操作人工确认是否完备。",
+            ]
+        )
+    verdict = payload.get("final_verdict", {}) if isinstance(payload.get("final_verdict"), dict) else {}
+    for item in verdict.get("blocking_risks", []) or []:
+        text = str(item)
+        if text not in gaps:
+            gaps.append(text)
+    return gaps or ["暂无额外信息缺口。"]
+
+
+def _company_fit_fallback(archetype: dict[str, Any]) -> str:
+    if archetype.get("primary") == "gui_agent":
+        return "与 AI Agent、MCP 工具生态、工作流自动化方向存在明确相关性；与 Coding Agent 上下文增强和业务理解编译层为间接相关；不适合作为知识库/RAG 底座优先评估，更适合作为 GUI Agent / Computer Use 自动化能力储备。"
+    return "需要结合公司画像进一步判断。"
+
+
+def _landing_scenarios(payload: dict[str, Any]) -> list[str]:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return ["非敏感桌面任务自动化", "浏览器操作验证", "GUI Agent 执行链路评估", "MCP 工具权限模型 PoC", "受控环境下的人机协作自动化"]
+    return ["非生产环境 PoC", "技术路线验证", "与现有工具链的集成可行性评估"]
+
+
+def _enterprise_security_matrix(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") != "gui_agent":
+        return "该项目不是 GUI Agent 类型，暂不生成 GUI Agent 专项安全矩阵。"
+    rows = [
+        ("模型 Provider 替换", "需验证", "必须可替换为私有模型或企业批准模型", "配置企业模型，禁止未经批准的外部 API。"),
+        ("截图上传边界", "需验证", "截图、OCR、上下文不得外传敏感数据", "抓包与日志检查，确认敏感截图不出受控环境。"),
+        ("Shell 权限", "高风险", "默认禁用或白名单控制", "仅开放只读命令，验证高危命令会被拦截。"),
+        ("Browser 权限", "需验证", "限制域名、Cookie、下载和表单提交", "用测试账号验证域名白名单和敏感操作拦截。"),
+        ("Filesystem 权限", "高风险", "限制目录和文件类型", "只挂载临时目录，验证越权读写失败。"),
+        ("MCP 工具权限", "需验证", "工具白名单、参数审计和最小权限", "逐项注册工具，验证危险工具默认不可用。"),
+        ("日志脱敏", "需验证", "日志不得包含密钥、截图、客户数据", "注入假 token，检查日志和缓存是否脱敏。"),
+        ("人工确认断点", "需补强", "高危操作必须人工确认", "设置删除、提交、支付、外发等操作的审批断点。"),
+        ("审计留痕", "需补强", "任务、工具、参数、结果可追溯", "复盘一次任务，确认完整操作链可审计。"),
+        ("多租户隔离", "不足", "租户数据、凭据、缓存隔离", "模拟两个用户任务，验证数据和状态不串扰。"),
+    ]
+    lines = ["| 检查项 | 当前状态 | 企业要求 | PoC 验证方式 |", "| --- | --- | --- | --- |"]
+    lines.extend(f"| {a} | {b} | {c} | {d} |" for a, b, c, d in rows)
+    return "\n".join(lines)
+
+
+def _minimum_poc_path(payload: dict[str, Any]) -> list[str]:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return [
+            "选择一个非敏感桌面任务和测试账号，不接入真实客户数据。",
+            "在受控网络中运行，优先使用私有模型或企业批准模型。",
+            "配置工具权限白名单，默认禁用 Shell、Filesystem 等高危能力。",
+            "验证日志脱敏、截图边界、审计留痕和缓存清理。",
+            "为高危操作设置人工确认断点。",
+            "重复运行同一任务，验证稳定性、可复现性和失败恢复。",
+        ]
+    return ["选择非生产样例数据。", "验证部署、权限、日志和集成边界。", "形成 Go / No-Go 复核结论。"]
+
+
+def _go_no_go_table(enterprise: dict[str, Any]) -> str:
+    plan = enterprise.get("enterprise_action_plan", {}) if isinstance(enterprise.get("enterprise_action_plan"), dict) else {}
+    criteria = plan.get("go_no_go_criteria") if isinstance(plan, dict) else None
+    go = ["支持受控或本地化部署", "工具权限可白名单控制", "日志脱敏和审计留痕可验证", "高危操作可人工确认"]
+    no_go = ["需要上传内部截图或代码到第三方", "无法限制 Shell / Browser / Filesystem 权限", "无审计留痕", "任务执行无法稳定复现"]
+    if isinstance(criteria, list) and criteria:
+        go = [str(item) for item in criteria if str(item).lower().startswith("go")]
+        no_go = [str(item) for item in criteria if str(item).lower().startswith("no")]
+    return "\n".join(["| Go 条件 | No-Go 条件 |", "| --- | --- |", f"| {_format_value(go)} | {_format_value(no_go)} |"])
+
+
+def _repo_shape_summary(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    structure = payload.get("repo_structure", {}) if isinstance(payload.get("repo_structure"), dict) else {}
+    languages = ", ".join(structure.get("main_languages", []) or ["未识别"])
+    if archetype.get("primary") == "gui_agent":
+        return f"{languages} monorepo / Electron desktop app / Agent runtime / GUI Agent SDK。"
+    if structure.get("monorepo_structure"):
+        return f"{languages} monorepo。"
+    return f"{languages} 仓库。"
+
+
+def _layer_summary(payload: dict[str, Any]) -> list[str]:
+    architecture = payload.get("architecture", {}) if isinstance(payload.get("architecture"), dict) else {}
+    modules = architecture.get("core_modules", []) if isinstance(architecture.get("core_modules"), list) else []
+    lines = []
+    preferred = ("apps/ui-tars", "multimodal/agent-tars", "multimodal/gui-agent", "infra/pdk", "multimodal/tarko")
+    for prefix in preferred:
+        match = next((item for item in modules if isinstance(item, dict) and str(item.get("path", "")).startswith(prefix)), None)
+        if match:
+            lines.append(f"{match.get('path')}：{match.get('role', '职责待验证')}")
+    if lines:
+        return lines
+    return [f"{item.get('path')}：{item.get('role', '职责待验证')}" for item in modules[:6] if isinstance(item, dict)] or ["核心分层仍需进一步源码复核。"]
+
+
+def _core_module_role_table(payload: dict[str, Any]) -> str:
+    architecture = payload.get("architecture", {}) if isinstance(payload.get("architecture"), dict) else {}
+    modules = architecture.get("core_modules", []) if isinstance(architecture.get("core_modules"), list) else []
+    if not modules:
+        return "未识别核心模块；原因可能是仓库文件列表不足、未启用 clone，或源码入口需要人工确认。"
+    rows = ["| 模块 | 职责 | 关键路径/证据 | 企业评估关注点 |", "| --- | --- | --- | --- |"]
+    for item in modules[:12]:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path", ""))
+        role = str(item.get("role", "职责待验证"))
+        evidence = _format_value(item.get("evidence") or item.get("key_files") or item.get("key_functions") or path)
+        concern = _enterprise_concern_for_module(path, role)
+        rows.append(f"| {path} | {role} | {evidence} | {concern} |")
+    return "\n".join(rows)
+
+
+def _enterprise_concern_for_module(path: str, role: str) -> str:
+    text = f"{path} {role}".lower()
+    if any(term in text for term in ("ui-tars", "electron", "renderer", "preload", "ipc", "store")):
+        return "本地数据、日志、权限边界、桌面环境访问。"
+    if any(term in text for term in ("agent-tars", "runtime", "planner", "environment")):
+        return "任务调度、工具执行边界、模型 provider 接入。"
+    if any(term in text for term in ("action-parser", "gui-agent")):
+        return "动作误判、注入风险、操作可审计性。"
+    if "operator" in text:
+        return "高危操作、权限白名单、人工确认断点。"
+    if any(term in text for term in ("mcp", "pdk", "tool")):
+        return "MCP 工具权限、审计和隔离。"
+    if "model" in text or "provider" in text:
+        return "企业批准模型替换、上下文上传边界。"
+    return "需结合 PoC 复核权限、维护和集成边界。"
+
+
+def _implementation_mechanism(payload: dict[str, Any]) -> str:
+    archetype = payload.get("project_archetype", {}) if isinstance(payload.get("project_archetype"), dict) else {}
+    if archetype.get("primary") == "gui_agent":
+        return _gui_agent_mechanism(payload)
+    metadata = (payload.get("context", {}) or {}).get("metadata", {}) if isinstance(payload.get("context"), dict) else {}
+    structure = payload.get("repo_structure", {}) if isinstance(payload.get("repo_structure"), dict) else {}
+    return "\n".join(
+        [
+            f"- 解决的问题：{metadata.get('description', '需要结合 README 进一步判断。')}",
+            f"- 技术路线：{', '.join(structure.get('main_languages', []) or ['未识别'])}",
+            "- 局限：不执行代码、不安装依赖，本报告只做只读分析。",
+        ]
+    )
+
+
+def _gui_agent_mechanism(payload: dict[str, Any]) -> str:
+    architecture = payload.get("architecture", {}) if isinstance(payload.get("architecture"), dict) else {}
+    modules = architecture.get("core_modules", []) if isinstance(architecture.get("core_modules"), list) else []
+    role_map = {str(item.get("path")): str(item.get("role", "")) for item in modules if isinstance(item, dict)}
+
+    def pick(*terms: str) -> str:
+        matches = [path for path, role in role_map.items() if any(term in f"{path} {role}".lower() for term in terms)]
+        return "、".join(matches[:5]) if matches else "未在当前扫描中确认，需源码复核"
+
+    return "\n".join(
+        [
+            "1. Electron Desktop Shell",
+            f"   - 相关路径：{pick('apps/ui-tars', 'electron', 'renderer', 'preload', 'ipc', 'window', 'store')}",
+            "   - 作用：承载桌面端入口、main/preload/renderer/IPC、窗口与本地状态，是 GUI Agent 与用户桌面环境交互的外壳。",
+            "2. Agent Runtime",
+            f"   - 相关路径：{pick('agent-tars', 'tarko', 'runtime', 'planner', 'environment')}",
+            "   - 作用：组织任务规划、环境抽象、CLI/server/shared/utils，是从用户目标到工具执行的调度层。",
+            "3. GUI Agent SDK / Operator",
+            f"   - 相关路径：{pick('gui-agent', 'action-parser', 'operator')}",
+            "   - 作用：解析模型输出动作，并连接 ADB、Browser、NutJS、AIO 等 operator，把模型决策转换为桌面/浏览器操作。",
+            "4. Model Provider / LLM Client",
+            f"   - 相关路径：{pick('model-provider', 'llm-client', 'provider')}",
+            "   - 作用：封装模型 provider 与 VLM/LLM 调用；企业落地必须验证是否能替换为企业批准模型，并限制截图/上下文上传边界。",
+            "5. MCP / Tools",
+            f"   - 相关路径：{pick('mcp', 'tool', 'pdk', 'server')}",
+            "   - 作用：提供工具扩展与协议集成面；核心风险是工具权限白名单、执行审计和高危操作审批。",
+            "6. State / Logs / Store",
+            f"   - 相关路径：{pick('store', 'snapshot', 'log', 'state')}",
+            "   - 作用：保存任务状态、反馈和日志；企业 PoC 必须验证日志脱敏、审计留痕和敏感信息不落盘。",
+        ]
+    )
+
+
 def _risk_summary(payload: dict[str, Any]) -> str:
     verdict = payload.get("final_verdict", {}) if isinstance(payload.get("final_verdict"), dict) else {}
     if verdict.get("blocking_risks"):
@@ -414,15 +924,62 @@ def _risk_summary(payload: dict[str, Any]) -> str:
 def _evidence_group(item: dict[str, Any]) -> str:
     status = item.get("risk_status")
     kind = item.get("evidence_kind")
+    if status == "pending_fix" or kind == "pending_fix_pr":
+        return "pending"
     if status == "unresolved" or kind in {"security_signal", "unresolved_issue", "performance_claim_challenge"}:
         return "unresolved"
-    if status in {"fixed", "mitigated"} or kind in {"merged_fix_pr", "closed_issue"}:
+    if status in {"fixed", "mitigated", "fixed_but_requires_verification"} or kind in {"merged_fix_pr", "closed_issue", "merged_security_fix", "security_signal_fixed"}:
         return "fixed"
     if kind in {"user_complaint", "feature_enhancement"}:
         return "complaint"
     if kind == "maintenance_signal" or status == "not_a_risk":
         return "positive"
     return "unresolved"
+
+
+def _evidence_type_label(item: dict[str, Any]) -> str:
+    item_type = item.get("item_type")
+    if item_type:
+        return str(item_type)
+    return {
+        "merged_security_fix": "Security PR",
+        "pending_fix_pr": "Security PR",
+        "security_signal": "Issue",
+        "feature_enhancement": "Feature Request",
+        "maintenance_signal": "Maintenance PR",
+        "user_complaint": "Issue",
+        "unresolved_issue": "Issue",
+    }.get(str(item.get("evidence_kind", "")), str(item.get("evidence_kind") or item.get("category") or "Issue"))
+
+
+def _risk_status_label(status: Any) -> str:
+    return {
+        "unresolved": "未解决",
+        "pending_fix": "待合并修复",
+        "fixed_but_requires_verification": "已修复但需复核",
+        "fixed": "已修复",
+        "mitigated": "已缓解",
+        "not_a_risk": "非风险",
+        "unclear": "待确认",
+    }.get(str(status), str(status or "待确认"))
+
+
+def _evidence_status_label(item: dict[str, Any]) -> str:
+    if item.get("state_source") == "title_heuristic":
+        return "需 API 复核"
+    return _risk_status_label(item.get("risk_status", ""))
+
+
+def _risk_level_label(status: Any) -> str:
+    return {"high": "高", "medium": "中", "low": "低"}.get(str(status), str(status or "待确认"))
+
+
+def _severity_label(severity: Any) -> str:
+    return {"high": "高", "medium": "中", "low": "低"}.get(str(severity), str(severity or ""))
+
+
+def _confidence_label(confidence: Any) -> str:
+    return {"high": "高", "medium": "中", "low": "低"}.get(str(confidence), str(confidence or ""))
 
 
 def _module_paths(items: Any) -> list[str]:
@@ -439,6 +996,48 @@ def _pipeline_summary(graph_pipeline: Any) -> str:
     if isinstance(graph_pipeline, list):
         return " → ".join(str(item) for item in graph_pipeline)
     return "待验证"
+
+
+def _architecture_summary(architecture: dict[str, Any], archetype: dict[str, Any]) -> str:
+    if archetype.get("primary") == "gui_agent":
+        chain = architecture.get("gui_agent_chain", {}) if isinstance(architecture.get("gui_agent_chain"), dict) else {}
+        stages = chain.get("stages", []) if isinstance(chain.get("stages"), list) else []
+        if stages:
+            return " → ".join(str(stage.get("name", "")) for stage in stages if isinstance(stage, dict))
+        return "GUI Agent 执行链路待验证"
+    return _pipeline_summary(architecture.get("graph_pipeline", {}))
+
+
+def _architecture_summary_label(archetype: dict[str, Any]) -> str:
+    return "GUI Agent 执行链路" if archetype.get("primary") == "gui_agent" else "Graph Pipeline"
+
+
+def _diagram_title(archetype: dict[str, Any]) -> str:
+    return "GUI Agent 执行链路图" if archetype.get("primary") == "gui_agent" else "Graph Pipeline 架构图"
+
+
+def _archetype_label(value: str) -> str:
+    return {
+        "gui_agent": "GUI Agent / Computer Use / Desktop Automation",
+        "code_knowledge_graph": "Code Knowledge Graph / Repo Context",
+        "mcp_tooling": "MCP Tooling",
+        "agent_runtime": "Agent Runtime",
+        "llm_infra": "LLM Infra",
+        "rag_knowledge": "RAG / Knowledge Base",
+        "unknown": "未识别",
+    }.get(str(value), str(value))
+
+
+def _workspace_table(monorepo: Any) -> str:
+    if not isinstance(monorepo, dict) or not monorepo:
+        return "未识别 monorepo workspace。"
+    lines = ["| Workspace | 角色 | 证据 |", "| --- | --- | --- |"]
+    for path, info in list(monorepo.items())[:18]:
+        if not isinstance(info, dict):
+            continue
+        evidence = "；".join(str(item) for item in info.get("evidence", []) if item)
+        lines.append(f"| {path} | {info.get('role', '')} | {evidence} |")
+    return "\n".join(lines)
 
 
 def _adjacent_comparables(comparison: dict[str, Any]) -> str:
@@ -610,6 +1209,10 @@ def _markdown_to_html(markdown: str) -> str:
             table_rows.append([cell.strip() for cell in line.strip("|").split("|")])
             continue
         close_table()
+        if line.startswith("<details") or line.startswith("</details") or line.startswith("<summary") or line.startswith("</summary"):
+            close_ul()
+            output.append(line)
+            continue
         if not line:
             close_ul()
             continue
@@ -648,6 +1251,10 @@ def _badge_risk(fragment: str) -> str:
         fragment = fragment.replace(f">{level}<", f'><span class="risk-{level}">{level}</span><')
         if fragment == level:
             fragment = f'<span class="risk-{level}">{level}</span>'
+    for label, level in (("高", "high"), ("中", "medium"), ("低", "low")):
+        fragment = fragment.replace(f">{label}<", f'><span class="risk-{level}">{label}</span><')
+        if fragment == label:
+            fragment = f'<span class="risk-{level}">{label}</span>'
     return fragment
 
 
