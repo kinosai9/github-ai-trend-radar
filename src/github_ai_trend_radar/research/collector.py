@@ -43,6 +43,11 @@ class ResearchCollector:
         tree = self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1"), default={})
         files = _prioritize_files(_tree_files(tree), max_files=max_files)
         package_files = [path for path in files if Path(path).name in PACKAGE_FILE_NAMES]
+        open_issues = self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/issues?state=open&per_page={max_issues}"), default=[])
+        closed_issues = self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/issues?state=closed&per_page={max_issues}"), default=[])
+        pull_requests = self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/pulls?state=all&per_page={min(max_issues, 30)}"), default=[])
+        open_issues = self._enrich_issue_pr_mirrors(owner, repo, open_issues)
+        closed_issues = self._enrich_issue_pr_mirrors(owner, repo, closed_issues)
         return {
             "repo": f"{owner}/{repo}",
             "metadata": metadata,
@@ -50,9 +55,9 @@ class ResearchCollector:
             "files": files,
             "package_files": package_files,
             "releases": self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/releases?per_page=5"), default=[]),
-            "open_issues": self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/issues?state=open&per_page={max_issues}"), default=[]),
-            "closed_issues": self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/issues?state=closed&per_page={max_issues}"), default=[]),
-            "pull_requests": self._safe(lambda: self._get_json(f"/repos/{owner}/{repo}/pulls?state=all&per_page={min(max_issues, 30)}"), default=[]),
+            "open_issues": open_issues,
+            "closed_issues": closed_issues,
+            "pull_requests": pull_requests,
             "errors": [],
         }
 
@@ -90,6 +95,31 @@ class ResearchCollector:
 
     def _get_json(self, path: str) -> Any:
         return self.client._get(path).json()
+
+    def _enrich_issue_pr_mirrors(self, owner: str, repo: str, issues: Any) -> Any:
+        if not isinstance(issues, list):
+            return issues
+        enriched = []
+        for item in issues:
+            if not isinstance(item, dict) or not item.get("pull_request") or not item.get("number"):
+                enriched.append(item)
+                continue
+            pr_data = self._safe(lambda number=item["number"]: self._get_json(f"/repos/{owner}/{repo}/pulls/{number}"), default={})
+            if isinstance(pr_data, dict) and pr_data:
+                merged = {
+                    **item,
+                    "_source_type": "pull_request",
+                    "state": pr_data.get("state", item.get("state")),
+                    "merged": pr_data.get("merged"),
+                    "merged_at": pr_data.get("merged_at"),
+                    "closed_at": pr_data.get("closed_at", item.get("closed_at")),
+                    "body": pr_data.get("body", item.get("body")),
+                    "html_url": pr_data.get("html_url", item.get("html_url")),
+                }
+                enriched.append(merged)
+            else:
+                enriched.append({**item, "_source_type": "pull_request"})
+        return enriched
 
     @staticmethod
     def _safe(fn, *, default):

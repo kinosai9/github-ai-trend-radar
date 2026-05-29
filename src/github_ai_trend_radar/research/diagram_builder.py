@@ -12,10 +12,19 @@ def build_diagrams(
     enterprise_fit: dict[str, Any],
     project_archetype: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    return {
+    diagrams = {
         "architecture": build_architecture_diagram(context, repo_structure, architecture, project_archetype=project_archetype),
         "mindmap": build_mindmap(context, enterprise_fit),
     }
+    if (project_archetype or {}).get("primary") == "gui_agent":
+        diagrams.update(
+            {
+                "gui_execution_flow": build_gui_execution_flow_diagram(context, architecture),
+                "gui_security_boundary": build_gui_security_boundary_diagram(context, architecture),
+                "gui_module_map": build_gui_module_map_diagram(context, repo_structure, architecture),
+            }
+        )
+    return diagrams
 
 
 def build_architecture_diagram(
@@ -52,6 +61,10 @@ def build_architecture_diagram(
 
 
 def _gui_agent_diagram(context: dict[str, Any], architecture: dict[str, Any]) -> str:
+    return build_gui_execution_flow_diagram(context, architecture)
+
+
+def build_gui_execution_flow_diagram(context: dict[str, Any], architecture: dict[str, Any]) -> str:
     repo = context.get("repo", "target repo")
     chain = architecture.get("gui_agent_chain", {}) if isinstance(architecture.get("gui_agent_chain"), dict) else {}
     labels = {stage.get("name"): stage.get("module") or "待验证" for stage in chain.get("stages", []) if isinstance(stage, dict)}
@@ -61,28 +74,146 @@ def _gui_agent_diagram(context: dict[str, Any], architecture: dict[str, Any]) ->
     env = labels.get("Environment Adapters", _first_core(architecture, ("operator", "environment", "browser", "desktop")))
     parser = labels.get("Action Parser", _first_core(architecture, ("action-parser", "parser")))
     executor = labels.get("Operator / Executor", _first_core(architecture, ("operator", "executor", "nutjs", "adb")))
-    tools = labels.get("MCP / Tools", _first_core(architecture, ("mcp", "tool")))
     store = labels.get("State / Logs / Store", _first_core(architecture, ("store", "log", "snapshot", "state")))
-    security = labels.get("Security Boundary", "工具权限白名单 / 日志脱敏 / 人工确认断点 / 企业需补强")
-    return f"""flowchart TD
-  User["User Task / 人工目标"] --> UI["Desktop App / CLI / Web UI\\n{app}"]
-  UI --> IPC["IPC / Preload / Renderer\\n企业需复核边界"]
-  IPC --> Runtime["Agent Runtime / Planner\\n{runtime}"]
-  Runtime --> Model["Model Provider / VLM / LLM Client\\n{provider}"]
-  ModelGuard["Model Provider Isolation\\n企业需补强"] -. governs .-> Model
-  Runtime --> Env["Environment Adapters\\n{env}"]
-  Model --> Parser["Action Parser\\n{parser}"]
-  Parser --> Executor["Operator / Executor\\n{executor}"]
-  Executor --> Targets["Browser / Desktop / Terminal / Filesystem"]
-  Runtime --> Tools["MCP / Tools\\n{tools}"]
-  Executor --> Store["Feedback / Audit Logs / Redaction\\n{store}"]
-  Approval["Human Approval / Interrupt Checkpoint\\n企业需补强"] -. interrupts .-> Executor
-  Permission["Tool Permission Boundary\\n工具权限白名单 / 企业需补强"] -. governs .-> Tools
-  Permission -. governs .-> Executor
-  Security["Security Boundary\\n{security}"] -. governs .-> Env
-  Security -. governs .-> Executor
-  Store --> Runtime
-  UI --> Repo["{repo}"]
+    return f"""flowchart LR
+  User["用户任务"] --> App["Desktop App / CLI / Web UI\\n{app}"]
+
+  subgraph Runtime["Agent Runtime"]
+    Planner["Planner / Task Loop\\n{runtime}"]
+    Env["Environment Adapters\\n{env}"]
+  end
+
+  subgraph Model["Model Layer"]
+    VLM["VLM / LLM Provider\\n{provider}"]
+    Guard["Provider Isolation\\n企业需验证"]
+  end
+
+  subgraph Action["Action Layer"]
+    Parser["Action Parser\\n{parser}"]
+    Operator["Operator / Executor\\n{executor}"]
+  end
+
+  subgraph Target["受控执行环境"]
+    Browser["Browser"]
+    Desktop["Desktop"]
+    Terminal["Terminal"]
+    FS["Filesystem"]
+  end
+
+  App --> Planner
+  Planner --> VLM
+  VLM --> Parser
+  Parser --> Operator
+  Operator --> Browser
+  Operator --> Desktop
+  Operator --> Terminal
+  Operator --> FS
+  Target --> Env
+  Env --> Planner
+  Operator --> Store["Feedback / Logs / Store\\n{store}"]
+  Store --> Planner
+  Repo["{repo}"] -. source .-> App
+"""
+
+
+def build_gui_security_boundary_diagram(context: dict[str, Any], architecture: dict[str, Any]) -> str:
+    tools = _first_core(architecture, ("mcp", "tool", "pdk"))
+    executor = _first_core(architecture, ("operator", "executor", "nutjs", "adb"))
+    provider = _first_core(architecture, ("model-provider", "llm-client", "provider"))
+    store = _first_core(architecture, ("store", "log", "snapshot", "state"))
+    return f"""flowchart LR
+  subgraph Inputs["输入与上下文"]
+    Screenshot["Screenshot / OCR / UI State"]
+    Prompt["User Prompt / Task Context"]
+  end
+
+  subgraph ModelBoundary["模型与数据边界"]
+    Provider["Model Provider\\n{provider}"]
+    ProviderGuard["Provider Isolation\\n私有模型 / 企业批准模型"]
+  end
+
+  subgraph ToolBoundary["工具权限边界"]
+    Tools["MCP / Tools\\n{tools}"]
+    Permission["Tool Permission Boundary\\n白名单 / 参数审计"]
+    Approval["Human Approval Checkpoint\\n高危操作人工确认"]
+  end
+
+  subgraph Execution["高危执行面"]
+    Executor["Operator / Executor\\n{executor}"]
+    Shell["Shell"]
+    Browser["Browser"]
+    FS["Filesystem"]
+    Desktop["Desktop"]
+  end
+
+  subgraph Audit["审计与脱敏"]
+    Logs["Audit Logs / Redaction\\n{store}"]
+    Secrets["Secret / Path / Screenshot Redaction\\n企业需补强"]
+  end
+
+  Screenshot --> Provider
+  Prompt --> Provider
+  ProviderGuard -. governs .-> Provider
+  Provider --> Tools
+  Permission -. governs .-> Tools
+  Tools --> Executor
+  Approval -. interrupts .-> Executor
+  Executor --> Shell
+  Executor --> Browser
+  Executor --> FS
+  Executor --> Desktop
+  Executor --> Logs
+  Secrets -. governs .-> Logs
+"""
+
+
+def build_gui_module_map_diagram(context: dict[str, Any], repo_structure: dict[str, Any], architecture: dict[str, Any]) -> str:
+    modules = architecture.get("core_modules", []) if isinstance(architecture.get("core_modules"), list) else []
+    lookup = {str(item.get("path", "")): str(item.get("role", "")) for item in modules if isinstance(item, dict)}
+
+    def role(path: str, fallback: str) -> str:
+        for key, value in lookup.items():
+            if key.startswith(path) or path in key:
+                return value or fallback
+        monorepo = repo_structure.get("monorepo_structure", {}) if isinstance(repo_structure.get("monorepo_structure"), dict) else {}
+        info = monorepo.get(path, {}) if isinstance(monorepo.get(path), dict) else {}
+        return str(info.get("role") or fallback)
+
+    return f"""flowchart TB
+  Repo["bytedance/UI-TARS-desktop\\nTypeScript Monorepo"]
+
+  subgraph Apps["应用层"]
+    UITars["apps/ui-tars\\n{role('apps/ui-tars', 'Electron desktop application shell')}"]
+  end
+
+  subgraph Runtime["Agent Runtime 层"]
+    AgentTars["multimodal/agent-tars\\n{role('multimodal/agent-tars', 'Agent runtime / CLI / environments')}"]
+    Tarko["multimodal/tarko\\n{role('multimodal/tarko', 'Model provider / agent server / snapshot')}"]
+  end
+
+  subgraph GuiSdk["GUI Agent SDK 层"]
+    GuiAgent["multimodal/gui-agent\\n{role('multimodal/gui-agent', 'Action parser / operators / SDK')}"]
+    Parser["action-parser"]
+    Operators["operator-adb / browser / nutjs / aio"]
+  end
+
+  subgraph Extension["扩展与工具层"]
+    PDK["infra/pdk\\n{role('infra/pdk', 'Plugin/development toolkit')}"]
+    MCP["MCP / Tools\\n权限与审计需复核"]
+  end
+
+  Repo --> UITars
+  Repo --> AgentTars
+  Repo --> GuiAgent
+  Repo --> Tarko
+  Repo --> PDK
+  UITars --> AgentTars
+  AgentTars --> Tarko
+  AgentTars --> GuiAgent
+  GuiAgent --> Parser
+  GuiAgent --> Operators
+  AgentTars --> MCP
+  PDK -. supports .-> MCP
 """
 
 

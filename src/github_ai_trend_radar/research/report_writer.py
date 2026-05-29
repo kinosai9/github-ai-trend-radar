@@ -235,11 +235,11 @@ def _compose_report_markdown(payload: dict[str, Any]) -> str:
 
 - 项目一句话：{_project_one_liner(payload)}
 - 核心能力：
-{_bullets(_core_capabilities(payload))}
+{_bullets(_core_capabilities(payload), indent=2)}
 - 主要解决的问题：{_problem_solved(payload)}
 - 为什么值得关注：{_why_it_matters(payload)}
 - 当前不适合直接落地的原因：
-{_bullets(_why_not_direct_landing(payload))}
+{_bullets(_why_not_direct_landing(payload), indent=2)}
 - 最终结论：{verdict.get('one_sentence') or _one_line_judgement(payload)}
 - 推荐动作：{_action_label(verdict.get('recommendation', 'watch'))}
 - 项目类型：{_archetype_label(archetype.get('primary', 'unknown'))}
@@ -272,11 +272,16 @@ def _compose_report_markdown(payload: dict[str, Any]) -> str:
 
 ### 证据看板
 
-- 正向证据：
+#### 正向证据
+
 {_bullets(evidence.get('positive', []) or ['暂无明确正向证据。'])}
-- 待验证信息：
+
+#### 待验证信息
+
 {_bullets(evidence.get('uncertainty', []) or ['暂无额外待验证项。'])}
-- 信息缺口：
+
+#### 信息缺口
+
 {_bullets(_information_gaps(payload))}
 
 ## 3. 企业落地判断
@@ -284,12 +289,13 @@ def _compose_report_markdown(payload: dict[str, Any]) -> str:
 - 企业落地结论：{enterprise.get('deployment_feasibility', '信息不足')}
 - 私有化部署可行性：{enterprise.get('private_deployment_feasibility', enterprise.get('deployment_feasibility', '信息不足'))}
 - 与我司方向的相关性：{enterprise.get('fit_with_existing_stack', _company_fit_fallback(archetype))}
-- 公司方向相关性：
+### 公司方向相关性
+
 {_action_plan_table(enterprise.get('company_direction_fit', {}))}
 - 可落地场景：
-{_bullets(enterprise.get('landing_scenarios', []) or enterprise.get('applicable_scenarios', []) or _landing_scenarios(payload))}
+{_bullets(enterprise.get('landing_scenarios', []) or enterprise.get('applicable_scenarios', []) or _landing_scenarios(payload), indent=2)}
 - 不可直接落地原因：
-{_bullets(enterprise.get('direct_blockers', []) or _why_not_direct_landing(payload))}
+{_bullets(enterprise.get('direct_blockers', []) or _why_not_direct_landing(payload), indent=2)}
 - 推荐落地路径：{enterprise.get('medium_term_action', '仅限隔离环境安全验证型 PoC。')}
 - 评分：技术价值 {rating.get('technical_value', '')}/5，企业适配 {rating.get('enterprise_fit', '')}/5，可实施性 {rating.get('implementation_feasibility', '')}/5，战略相关 {rating.get('strategic_relevance', '')}/5，风险 {_risk_level_label(rating.get('risk_level', ''))}
 - 质量闸门：{_quality_gate_text(payload)}
@@ -312,19 +318,18 @@ def _compose_report_markdown(payload: dict[str, Any]) -> str:
 
 - 仓库形态：{_repo_shape_summary(payload)}
 - 主要分层：
-{_bullets(_layer_summary(payload))}
+{_bullets(_layer_summary(payload), indent=2)}
 - 源码分析置信度：{confidence.get('architecture', 'medium')}，证据来自 README、package/workspace 文件、目录树和核心源码路径。
-- {_architecture_summary_label(archetype)}：{_architecture_summary(architecture, archetype)}
+- 链路摘要：{_architecture_summary(architecture, archetype)}
+
+{_gui_diagram_sections(diagrams, archetype)}
 
 ### 核心模块角色表
 
 {_core_module_role_table(payload)}
 
-### {_diagram_title(archetype)}
+{_non_gui_architecture_section(diagrams, archetype)}
 
-```mermaid
-{diagrams.get('architecture', '')}
-```
 
 ### 核心技术与实现机制
 
@@ -462,6 +467,10 @@ def render_html(payload: dict[str, Any], markdown: str) -> str:
     .meta {{ color:#667085; font-size:13px; }}
     .section {{ border-top:1px solid #e7decd; padding-top:8px; }}
     .mermaid {{ background:#fbfaf5; border:1px dashed #cfc6b4; }}
+    .local-diagram {{ background:#fbfaf5; border:1px dashed #cfc6b4; padding:14px; margin:14px 0; overflow-x:auto; }}
+    .local-diagram svg {{ width:100%; height:auto; min-width:920px; display:block; }}
+    .diagram-source {{ margin-top:10px; }}
+    .diagram-source pre {{ max-height:260px; }}
     .risk-low {{ color:#166534; font-weight:700; }}
     .risk-medium {{ color:#b45309; font-weight:700; }}
     .risk-high {{ color:#b91c1c; font-weight:700; }}
@@ -565,8 +574,9 @@ def _key_findings(payload: dict[str, Any]) -> list[str]:
     ]
 
 
-def _bullets(items: list[str]) -> str:
-    return "\n".join(f"- {item}" for item in items)
+def _bullets(items: list[str], *, indent: int = 0) -> str:
+    prefix = " " * indent
+    return "\n".join(f"{prefix}- {item}" for item in items)
 
 
 def _license(metadata: dict[str, Any]) -> str:
@@ -849,6 +859,64 @@ def _core_module_role_table(payload: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _gui_diagram_sections(diagrams: dict[str, Any], archetype: dict[str, Any]) -> str:
+    if archetype.get("primary") != "gui_agent":
+        return ""
+    execution = diagrams.get("gui_execution_flow") or diagrams.get("architecture") or ""
+    security = diagrams.get("gui_security_boundary") or ""
+    module_map = diagrams.get("gui_module_map") or ""
+    parts = [
+        "### GUI Agent 任务执行链路图",
+        "",
+        "这张图只表达一次任务从用户目标到真实环境操作再回到反馈循环的主路径。",
+        "",
+        "```mermaid",
+        str(execution),
+        "```",
+    ]
+    if security:
+        parts.extend(
+            [
+                "",
+                "### GUI Agent 企业安全边界图",
+                "",
+                "这张图突出企业 PoC 必须验证的模型、工具、执行和日志边界。",
+                "",
+                "```mermaid",
+                str(security),
+                "```",
+            ]
+        )
+    if module_map:
+        parts.extend(
+            [
+                "",
+                "### Monorepo 模块关系图",
+                "",
+                "这张图用于和后面的核心模块角色表配合阅读，帮助快速定位模块职责。",
+                "",
+                "```mermaid",
+                str(module_map),
+                "```",
+            ]
+        )
+    return "\n".join(parts)
+
+
+def _non_gui_architecture_section(diagrams: dict[str, Any], archetype: dict[str, Any]) -> str:
+    if archetype.get("primary") == "gui_agent":
+        return ""
+    return "\n".join(
+        [
+            f"### {_diagram_title(archetype)}",
+            "",
+            "```mermaid",
+            str(diagrams.get("architecture", "")),
+            "```",
+        ]
+    )
+
+
 def _enterprise_concern_for_module(path: str, role: str) -> str:
     text = f"{path} {role}".lower()
     if any(term in text for term in ("ui-tars", "electron", "renderer", "preload", "ipc", "store")):
@@ -1003,8 +1071,8 @@ def _architecture_summary(architecture: dict[str, Any], archetype: dict[str, Any
         chain = architecture.get("gui_agent_chain", {}) if isinstance(architecture.get("gui_agent_chain"), dict) else {}
         stages = chain.get("stages", []) if isinstance(chain.get("stages"), list) else []
         if stages:
-            return " → ".join(str(stage.get("name", "")) for stage in stages if isinstance(stage, dict))
-        return "GUI Agent 执行链路待验证"
+            return "主流程已识别为用户任务、Agent Runtime、模型层、动作解析、Operator 执行和反馈日志闭环；详细路径见下方三张图。"
+        return "GUI Agent 主流程仍需源码复核；详细结构见下方图表。"
     return _pipeline_summary(architecture.get("graph_pipeline", {}))
 
 
@@ -1042,6 +1110,7 @@ def _workspace_table(monorepo: Any) -> str:
 
 def _adjacent_comparables(comparison: dict[str, Any]) -> str:
     adjacent = comparison.get("adjacent_comparables", []) if isinstance(comparison, dict) else []
+    adjacent = [item for item in adjacent if _is_report_adjacent_comparable(item)]
     if not adjacent:
         return "暂无相邻生态参考。"
     lines = []
@@ -1051,6 +1120,23 @@ def _adjacent_comparables(comparison: dict[str, Any]) -> str:
         label = f"[{repo}]({url})" if url else repo
         lines.append(f"- {label}：{item.get('reason_selected', '')}")
     return "\n".join(lines)
+
+
+def _is_report_adjacent_comparable(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            str(item.get("repo", "")),
+            str(item.get("reason_selected", "")),
+            str(item.get("positioning", "")),
+            str(item.get("capabilities", "")),
+            " ".join(str(value) for value in item.get("overlap_dimensions", []) or []),
+        ]
+    ).lower()
+    weak_terms = ("skill collection", "video", "html rendering", "trading", "memory", "context db", "generic agent", "generic")
+    if any(term in text for term in weak_terms):
+        return False
+    strong_terms = ("gui agent", "browser agent", "computer use", "computer-use", "browser automation", "desktop automation", "mcp", "devtools", "tool server")
+    return any(term in text for term in strong_terms)
 
 
 def _action_label(action: str) -> str:
@@ -1157,7 +1243,7 @@ def _llm_final_block(final_llm: dict[str, Any]) -> str:
 def _markdown_to_html(markdown: str) -> str:
     lines = markdown.splitlines()
     output: list[str] = []
-    in_ul = False
+    list_depth = 0
     in_code = False
     code_lang = ""
     code_lines: list[str] = []
@@ -1165,10 +1251,19 @@ def _markdown_to_html(markdown: str) -> str:
     table_rows: list[list[str]] = []
 
     def close_ul() -> None:
-        nonlocal in_ul
-        if in_ul:
+        nonlocal list_depth
+        while list_depth:
             output.append("</ul>")
-            in_ul = False
+            list_depth -= 1
+
+    def set_list_depth(target_depth: int) -> None:
+        nonlocal list_depth
+        while list_depth < target_depth:
+            output.append("<ul>")
+            list_depth += 1
+        while list_depth > target_depth:
+            output.append("</ul>")
+            list_depth -= 1
 
     def close_table() -> None:
         nonlocal in_table, table_rows
@@ -1190,7 +1285,12 @@ def _markdown_to_html(markdown: str) -> str:
         if line.startswith("```"):
             if in_code:
                 css_class = "mermaid" if code_lang == "mermaid" else ""
-                output.append(f'<pre class="{css_class}"><code>{html.escape(chr(10).join(code_lines))}</code></pre>')
+                raw_code = chr(10).join(code_lines)
+                code_text = html.escape(raw_code)
+                if code_lang == "mermaid":
+                    output.append(_render_mermaid_local(raw_code))
+                else:
+                    output.append(f'<pre class="{css_class}"><code>{code_text}</code></pre>')
                 code_lines = []
                 code_lang = ""
                 in_code = False
@@ -1225,11 +1325,14 @@ def _markdown_to_html(markdown: str) -> str:
         elif line.startswith("### "):
             close_ul()
             output.append(f"<h3>{html.escape(line[4:].strip())}</h3>")
-        elif line.startswith("- "):
-            if not in_ul:
-                output.append("<ul>")
-                in_ul = True
-            output.append(f"<li>{_inline_markdown(line[2:].strip())}</li>")
+        elif line.startswith("#### "):
+            close_ul()
+            output.append(f"<h4>{html.escape(line[5:].strip())}</h4>")
+        elif line.lstrip().startswith("- "):
+            indent = len(line) - len(line.lstrip(" "))
+            depth = max(1, indent // 2 + 1)
+            set_list_depth(depth)
+            output.append(f"<li>{_inline_markdown(line.lstrip()[2:].strip())}</li>")
         else:
             close_ul()
             output.append(f"<p>{_inline_markdown(line)}</p>")
@@ -1244,6 +1347,375 @@ def _inline_markdown(text: str) -> str:
     import re
 
     return re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2">\1</a>', escaped)
+
+
+def _render_mermaid_local(code: str) -> str:
+    parsed = _parse_mermaid_flowchart(code)
+    source = f"<details class=\"diagram-source\"><summary>查看图表数据模型</summary><pre><code>{html.escape(_diagram_model_text(parsed))}</code></pre></details>"
+    if not parsed["nodes"] and not parsed["edges"]:
+        return f'<div class="local-diagram"><pre><code>{html.escape(code)}</code></pre></div>'
+    if _is_gui_execution_flow(parsed):
+        svg = _render_gui_execution_svg(parsed)
+    elif _is_gui_security_boundary(parsed):
+        svg = _render_gui_security_boundary_svg(parsed)
+    elif _is_monorepo_layer_map(parsed):
+        svg = _render_monorepo_layer_map_svg(parsed)
+    else:
+        svg = _render_flowchart_svg(parsed)
+    return (
+        '<div class="local-diagram">'
+        f'{svg}'
+        f'{source}'
+        '</div>'
+    )
+
+
+def _is_gui_execution_flow(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    node_text = " ".join(str(label) for label in parsed.get("nodes", {}).values()).lower()
+    return {"Agent Runtime", "Model Layer", "Action Layer", "受控执行环境"}.issubset(labels) and "operator / executor" in node_text
+
+
+def _is_gui_security_boundary(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    return {"输入与上下文", "模型与数据边界", "工具权限边界", "高危执行面", "审计与脱敏"}.issubset(labels)
+
+
+def _is_monorepo_layer_map(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    return {"应用层", "Agent Runtime 层", "GUI Agent SDK 层", "扩展与工具层"}.issubset(labels)
+
+
+def _render_gui_execution_svg(parsed: dict[str, Any]) -> str:
+    nodes = parsed.get("nodes", {}) if isinstance(parsed.get("nodes"), dict) else {}
+
+    def label(node_id: str, fallback: str) -> str:
+        return _short_svg_label(str(nodes.get(node_id) or fallback))
+
+    cards = [
+        ("User", label("User", "用户任务")),
+        ("App", label("App", "Desktop App / CLI / Web UI")),
+        ("Planner", label("Planner", "Agent Runtime / Planner")),
+        ("VLM", label("VLM", "Model Provider / VLM / LLM")),
+        ("Parser", label("Parser", "Action Parser")),
+        ("Operator", label("Operator", "Operator / Executor")),
+        ("Environment", "Browser / Desktop\nTerminal / Filesystem"),
+    ]
+    node_w = 148
+    node_h = 72
+    gap_x = 28
+    margin_x = 34
+    top_y = 104
+    width = margin_x * 2 + len(cards) * node_w + (len(cards) - 1) * gap_x
+    height = 360
+    pos: dict[str, tuple[float, float]] = {}
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="GUI Agent execution flow">',
+        '<title>GUI Agent 任务执行链路</title>',
+        '<desc>固定横向主流程图，展示用户任务进入桌面应用、Agent Runtime、模型、动作解析、执行器和受控执行环境的路径，底部反馈带表示日志和结果回流。</desc>',
+        '<defs><marker id="arrow-gui" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748b"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="34" y="34" fill="#0f172a" font-size="18" font-weight="700">GUI Agent 任务执行链路</text>',
+        '<text x="34" y="58" fill="#64748b" font-size="12">实线：任务执行主流程 · 虚线带：反馈/日志回路 · 橙色角标：企业需验证</text>',
+    ]
+    for index, (node_id, node_label) in enumerate(cards):
+        x = margin_x + index * (node_w + gap_x)
+        pos[node_id] = (x + node_w / 2, top_y + node_h / 2)
+        parts.extend(_svg_node(x, top_y, node_w, node_label, height=node_h))
+        if node_id in {"VLM", "Operator", "Environment"}:
+            parts.append(_svg_badge(x + node_w - 56, top_y - 11, "需验证", fill="#fff7ed", stroke="#fb923c", color="#9a3412"))
+
+    def straight(src: str, dst: str) -> None:
+        if src not in pos or dst not in pos:
+            return
+        x1, y1 = pos[src]
+        x2, y2 = pos[dst]
+        sx = x1 + node_w / 2 + 2
+        ex = x2 - node_w / 2
+        parts.append(f'<line x1="{sx:.1f}" y1="{y1:.1f}" x2="{ex:.1f}" y2="{y2:.1f}" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow-gui)"/>')
+
+    for src, dst in [("User", "App"), ("App", "Planner"), ("Planner", "VLM"), ("VLM", "Parser"), ("Parser", "Operator"), ("Operator", "Environment")]:
+        straight(src, dst)
+    # Feedback is a separate band below the main cards, not a crossing edge.
+    feedback_y = top_y + node_h + 70
+    start = pos["Operator"][0]
+    end = pos["Planner"][0]
+    parts.append(f'<rect x="{end - 78:.1f}" y="{feedback_y - 24}" width="{start - end + 156:.1f}" height="50" rx="16" fill="#fff7ed" stroke="#f3c177" stroke-dasharray="6 5"/>')
+    parts.append(f'<text x="{end - 58:.1f}" y="{feedback_y + 4}" fill="#9a3412" font-size="13">Feedback / Logs / Store：执行结果回流 Planner，用于下一轮判断</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _parse_mermaid_flowchart(code: str) -> dict[str, Any]:
+    import re
+
+    nodes: dict[str, str] = {}
+    sections: list[dict[str, Any]] = []
+    section_stack: list[dict[str, Any]] = []
+    edges: list[tuple[str, str]] = []
+    section_node_ids: set[str] = set()
+    node_pattern = re.compile(r'([A-Za-z][\w]*)\s*\[\s*"([^"]+)"\s*\]')
+    subgraph_pattern = re.compile(r'^\s*subgraph\s+([A-Za-z][\w]*)\s*\[\s*"([^"]+)"\s*\]')
+    edge_pattern = re.compile(r'([A-Za-z][\w]*)\s*(?:-->|-.+?->)\s*([A-Za-z][\w]*)')
+
+    for line in code.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("flowchart"):
+            continue
+        subgraph_match = subgraph_pattern.match(line)
+        if subgraph_match:
+            section = {"id": subgraph_match.group(1), "label": subgraph_match.group(2), "nodes": []}
+            sections.append(section)
+            section_stack.append(section)
+            continue
+        if stripped == "end":
+            if section_stack:
+                section_stack.pop()
+            continue
+        for node_match in node_pattern.finditer(line):
+            node_id, label = node_match.group(1), node_match.group(2)
+            nodes[node_id] = label
+            if section_stack:
+                if node_id not in section_stack[-1]["nodes"]:
+                    section_stack[-1]["nodes"].append(node_id)
+                section_node_ids.add(node_id)
+        for src, dst in edge_pattern.findall(line):
+            edges.append((src, dst))
+            nodes.setdefault(src, src)
+            nodes.setdefault(dst, dst)
+    section_ids = {section["id"]: section for section in sections}
+    return {"nodes": nodes, "sections": sections, "section_ids": section_ids, "section_node_ids": section_node_ids, "edges": edges}
+
+
+def _diagram_model_text(parsed: dict[str, Any]) -> str:
+    import json
+
+    model = {
+        "sections": [
+            {
+                "id": section.get("id"),
+                "label": section.get("label"),
+                "nodes": [
+                    {"id": node_id, "label": parsed.get("nodes", {}).get(node_id, node_id)}
+                    for node_id in section.get("nodes", [])
+                ],
+            }
+            for section in parsed.get("sections", [])
+        ],
+        "standalone_nodes": [
+            {"id": node_id, "label": label}
+            for node_id, label in parsed.get("nodes", {}).items()
+            if node_id not in parsed.get("section_node_ids", set()) and node_id not in parsed.get("section_ids", {})
+        ],
+        "raw_edges_for_debug": [
+            {"from": src, "to": dst}
+            for src, dst in parsed.get("edges", [])
+        ],
+        "note": "正式报告图使用固定 SVG 模板渲染；这里是图表数据模型，不是正式布局来源。",
+    }
+    return json.dumps(model, ensure_ascii=False, indent=2)
+
+
+def _render_flowchart_svg(parsed: dict[str, Any]) -> str:
+    sections = list(parsed.get("sections", []) or [])
+    nodes: dict[str, str] = parsed.get("nodes", {}) if isinstance(parsed.get("nodes"), dict) else {}
+    edges: list[tuple[str, str]] = parsed.get("edges", []) if isinstance(parsed.get("edges"), list) else []
+    section_ids: dict[str, dict[str, Any]] = parsed.get("section_ids", {}) if isinstance(parsed.get("section_ids"), dict) else {}
+    section_node_ids: set[str] = parsed.get("section_node_ids", set()) if isinstance(parsed.get("section_node_ids"), set) else set()
+    ungrouped = [node_id for node_id in nodes if node_id not in section_node_ids and node_id not in section_ids]
+    columns: list[dict[str, Any]] = []
+    if ungrouped:
+        columns.append({"id": "_main", "label": "主流程", "nodes": ungrouped})
+    columns.extend(sections)
+    if not columns:
+        columns = [{"id": "_main", "label": "流程", "nodes": list(nodes.keys())}]
+
+    node_w = 190
+    row_h = 86
+    gap_x = 42
+    margin_x = 28
+    margin_y = 44
+    header_h = 34
+    max_rows = max((len(col.get("nodes", []) or []) for col in columns), default=1)
+    width = max(760, margin_x * 2 + len(columns) * node_w + (len(columns) - 1) * gap_x)
+    height = margin_y * 2 + header_h + max_rows * row_h + 32
+    positions: dict[str, tuple[float, float]] = {}
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="flowchart">',
+        '<title>流程图</title>',
+        '<desc>本地生成的固定 SVG 流程图，用于离线展示 Mermaid 草稿中的主要节点和关系。</desc>',
+        '<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748b"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+    ]
+
+    for col_index, column in enumerate(columns):
+        x = margin_x + col_index * (node_w + gap_x)
+        col_nodes = [node_id for node_id in column.get("nodes", []) if node_id in nodes]
+        group_h = header_h + max(1, len(col_nodes)) * row_h
+        parts.append(f'<rect x="{x - 10}" y="{margin_y - 22}" width="{node_w + 20}" height="{group_h}" rx="10" fill="#fffdf8" stroke="#ddd5c7"/>')
+        parts.append(f'<text x="{x}" y="{margin_y}" fill="#334155" font-size="14" font-weight="700">{html.escape(str(column.get("label", "")))}</text>')
+        for row_index, node_id in enumerate(col_nodes):
+            y = margin_y + header_h + row_index * row_h
+            positions[node_id] = (x + node_w / 2, y + 26)
+            parts.extend(_svg_node(x, y, node_w, nodes[node_id]))
+        if column.get("id"):
+            positions[str(column["id"])] = (x + node_w / 2, margin_y + header_h + max(1, len(col_nodes)) * row_h / 2)
+
+    for src, dst in edges:
+        if src not in positions or dst not in positions:
+            continue
+        x1, y1 = positions[src]
+        x2, y2 = positions[dst]
+        if abs(x1 - x2) < 5 and abs(y1 - y2) < 5:
+            continue
+        start_x = x1 + (node_w / 2 if x2 >= x1 else -node_w / 2)
+        end_x = x2 - (node_w / 2 if x2 >= x1 else -node_w / 2)
+        mid_x = (start_x + end_x) / 2
+        parts.append(
+            f'<path d="M {start_x:.1f} {y1:.1f} C {mid_x:.1f} {y1:.1f}, {mid_x:.1f} {y2:.1f}, {end_x:.1f} {y2:.1f}" '
+            'fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>'
+        )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _render_gui_security_boundary_svg(parsed: dict[str, Any]) -> str:
+    width = 980
+    panel_w = 850
+    panel_h = 88
+    margin_x = 52
+    y0 = 72
+    gap = 22
+    controls = [
+        ("数据边界", ["Screenshot / OCR / UI State", "User Prompt / Task Context"], "敏感数据不外传、日志脱敏", "需验证", "#fff7ed", "#fb923c"),
+        ("模型边界", ["Model Provider", "Provider Isolation"], "企业批准模型、本地化或受控网络", "需验证", "#fff7ed", "#fb923c"),
+        ("工具边界", ["MCP / Tools", "Tool Permission Boundary", "Human Approval"], "白名单、参数审计、高危操作确认", "需补强", "#eff6ff", "#64748b"),
+        ("执行边界", ["Shell", "Browser", "Filesystem", "Desktop"], "沙箱、目录限制、域名白名单、命令白名单", "高风险", "#fef2f2", "#ef4444"),
+        ("审计边界", ["Audit Logs", "Redaction", "Store"], "审计留痕、脱敏、可追溯", "需验证", "#fff7ed", "#fb923c"),
+    ]
+    height = y0 + len(controls) * panel_h + (len(controls) - 1) * gap + 54
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="GUI Agent security boundary">',
+        '<title>GUI Agent 企业安全边界</title>',
+        '<desc>五层安全控制面图，展示数据边界、模型边界、工具边界、执行边界和审计边界，以及每层企业落地前必须验证的要求。</desc>',
+        '<defs><marker id="arrow-sec" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="52" y="34" fill="#0f172a" font-size="18" font-weight="700">GUI Agent 企业安全边界</text>',
+        '<text x="52" y="56" fill="#64748b" font-size="12">每一层都是企业落地前必须验收的控制面；箭头只表示顺序，不表示调用依赖。</text>',
+    ]
+    centers = []
+    for index, (title, items, requirement, badge, fill, stroke) in enumerate(controls):
+        y = y0 + index * (panel_h + gap)
+        centers.append((margin_x + panel_w / 2, y + panel_h))
+        parts.append(f'<rect x="{margin_x}" y="{y}" width="{panel_w}" height="{panel_h}" rx="12" fill="{fill}" stroke="{stroke}"/>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 28}" fill="#0f172a" font-size="15" font-weight="700">{title}</text>')
+        parts.append(_svg_badge(margin_x + panel_w - 74, y + 14, badge, fill="#fffdf8", stroke=stroke, color="#0f172a"))
+        item_text = " · ".join(items)
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 53}" fill="#334155" font-size="13">{html.escape(item_text)}</text>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 74}" fill="#64748b" font-size="12">企业要求：{html.escape(requirement)}</text>')
+    for index in range(len(centers) - 1):
+        x, y = centers[index]
+        next_y = y0 + (index + 1) * (panel_h + gap)
+        parts.append(f'<line x1="{x}" y1="{y + 4}" x2="{x}" y2="{next_y - 8}" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-sec)"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _render_monorepo_layer_map_svg(parsed: dict[str, Any]) -> str:
+    width = 1120
+    margin_x = 48
+    y0 = 74
+    layer_h = 132
+    gap = 22
+    layers = [
+        ("应用层", [("apps/ui-tars", "Electron desktop shell"), ("apps/ui-tars/src/renderer", "Renderer / UI")], "#eff6ff"),
+        ("Agent Runtime 层", [("multimodal/agent-tars", "Runtime / CLI / environments"), ("multimodal/tarko", "Provider / server / snapshot")], "#f8fafc"),
+        ("GUI Agent SDK 层", [("gui-agent/action-parser", "Action parser"), ("operator-adb/browser/nutjs", "Operators"), ("operator-aio", "Execution adapter")], "#f0fdf4"),
+        ("扩展与工具层", [("infra/pdk", "Development toolkit"), ("MCP / Tools", "Permission & audit surface")], "#fff7ed"),
+    ]
+    height = y0 + len(layers) * layer_h + (len(layers) - 1) * gap + 42
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Monorepo layer map">',
+        '<title>Monorepo 模块分层地图</title>',
+        '<desc>分层卡片图，展示 UI-TARS monorepo 的应用层、Agent Runtime 层、GUI Agent SDK 层和扩展与工具层。</desc>',
+        '<defs><marker id="arrow-layer" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="48" y="34" fill="#0f172a" font-size="18" font-weight="700">Monorepo 模块分层地图</text>',
+        '<text x="48" y="56" fill="#64748b" font-size="12">只展示主要分层，不画所有 workspace 依赖；详细职责见下方核心模块角色表。</text>',
+    ]
+    centers = []
+    for index, (title, modules, fill) in enumerate(layers):
+        y = y0 + index * (layer_h + gap)
+        parts.append(f'<rect x="{margin_x}" y="{y}" width="{width - margin_x * 2}" height="{layer_h}" rx="14" fill="{fill}" stroke="#d8d1c2"/>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 30}" fill="#0f172a" font-size="15" font-weight="700">{title}</text>')
+        card_w = 238
+        for module_index, (path, role) in enumerate(modules[:4]):
+            x = margin_x + 18 + module_index * (card_w + 14)
+            card_y = y + 48
+            parts.append(f'<rect x="{x}" y="{card_y}" width="{card_w}" height="62" rx="8" fill="#fffdf8" stroke="#c9c0ae"/>')
+            parts.append(f'<text x="{x + 10}" y="{card_y + 23}" fill="#0f172a" font-size="12" font-weight="700">{html.escape(_short_svg_label(path, 28))}</text>')
+            parts.append(f'<text x="{x + 10}" y="{card_y + 44}" fill="#64748b" font-size="11">{html.escape(role)}</text>')
+        centers.append((width / 2, y + layer_h))
+    for index in range(len(centers) - 1):
+        x, y = centers[index]
+        next_y = y0 + (index + 1) * (layer_h + gap)
+        parts.append(f'<line x1="{x}" y1="{y + 4}" x2="{x}" y2="{next_y - 8}" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-layer)"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _svg_node(x: float, y: float, width: float, label: str, *, height: float | None = None) -> list[str]:
+    lines = _wrap_svg_label(label)
+    node_height = height or max(50, 22 + len(lines) * 17)
+    result = [f'<rect x="{x}" y="{y}" width="{width}" height="{node_height}" rx="8" fill="#f8f6ef" stroke="#c9c0ae"/>']
+    for index, line in enumerate(lines):
+        result.append(f'<text x="{x + 10}" y="{y + 22 + index * 17}" fill="#0f172a" font-size="12">{html.escape(line)}</text>')
+    return result
+
+
+def _svg_badge(x: float, y: float, text: str, *, fill: str, stroke: str, color: str) -> str:
+    return (
+        f'<rect x="{x}" y="{y}" width="58" height="22" rx="11" fill="{fill}" stroke="{stroke}"/>'
+        f'<text x="{x + 9}" y="{y + 15}" fill="{color}" font-size="11" font-weight="700">{html.escape(text)}</text>'
+    )
+
+
+def _short_svg_label(label: str, max_chars: int = 32) -> str:
+    replacements = {
+        "Desktop App / CLI / Web UI": "Desktop App / CLI / Web UI",
+        "Model Provider / VLM / LLM Client": "Model Provider / VLM / LLM",
+        "multimodal/agent-tars/cli": "multimodal/agent-tars",
+        "multimodal/gui-agent/action-parser": "gui-agent/action-parser",
+        "multimodal/gui-agent/operator-adb": "operator-adb/browser/nutjs",
+    }
+    value = str(label).replace("\\n", "\n")
+    for src, dst in replacements.items():
+        value = value.replace(src, dst)
+    lines = []
+    for line in value.splitlines():
+        line = line.strip()
+        if len(line) > max_chars:
+            line = line[: max_chars - 1] + "…"
+        if line:
+            lines.append(line)
+    return "\n".join(lines[:2]) or str(label)[:max_chars]
+
+
+def _wrap_svg_label(label: str, max_chars: int = 24) -> list[str]:
+    raw_lines = str(label).replace("\\n", "\n").splitlines() or [str(label)]
+    lines: list[str] = []
+    for raw in raw_lines:
+        text = raw.strip()
+        while len(text) > max_chars:
+            lines.append(text[:max_chars])
+            text = text[max_chars:]
+        if text:
+            lines.append(text)
+    return lines[:4]
+
+
+def _diagram_label_html(label: str) -> str:
+    return html.escape(str(label)).replace("\\n", "<br>")
 
 
 def _badge_risk(fragment: str) -> str:

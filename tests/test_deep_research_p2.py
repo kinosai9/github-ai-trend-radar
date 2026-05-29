@@ -9,7 +9,7 @@ from github_ai_trend_radar.research.archetype import detect_project_archetype
 from github_ai_trend_radar.research.collector import ResearchCollector, _prioritize_files
 from github_ai_trend_radar.research.code_analyzer import analyze_code_architecture
 from github_ai_trend_radar.research.comparable_finder import find_comparable_projects
-from github_ai_trend_radar.research.diagram_builder import build_architecture_diagram, build_mindmap
+from github_ai_trend_radar.research.diagram_builder import build_architecture_diagram, build_diagrams, build_mindmap
 from github_ai_trend_radar.research.enterprise_fit import evaluate_enterprise_fit
 from github_ai_trend_radar.research.ecosystem_search import search_ecosystem_context
 from github_ai_trend_radar.research.issue_analyzer import analyze_issues_and_limitations
@@ -173,6 +173,34 @@ def test_gui_agent_architecture_uses_execution_chain_not_graph_pipeline():
     assert architecture["graph_pipeline"]["confidence"] == "not_applicable"
     assert "Agent Runtime" in flow
     assert "graph builder" not in flow.lower()
+
+
+def test_gui_agent_diagrams_include_execution_security_and_module_map():
+    context = {"repo": "bytedance/UI-TARS-desktop", "files": [], "readme": "gui agent"}
+    structure = {
+        "monorepo_structure": {
+            "apps/ui-tars": {"role": "Electron desktop application shell"},
+            "multimodal/agent-tars": {"role": "Agent runtime / CLI / environments"},
+            "multimodal/gui-agent": {"role": "Action parser / operators / SDK"},
+        }
+    }
+    architecture = {
+        "core_modules": [
+            {"path": "apps/ui-tars", "role": "Electron desktop application shell"},
+            {"path": "multimodal/agent-tars/core", "role": "Agent runtime / CLI / environments"},
+            {"path": "multimodal/gui-agent/action-parser", "role": "GUI action parser"},
+        ],
+        "gui_agent_chain": {"stages": [{"name": "Desktop App / CLI / Web UI", "module": "apps/ui-tars"}]},
+    }
+
+    diagrams = build_diagrams(context, structure, architecture, {"final_rating": {}}, project_archetype={"primary": "gui_agent"})
+
+    assert "gui_execution_flow" in diagrams
+    assert "gui_security_boundary" in diagrams
+    assert "gui_module_map" in diagrams
+    assert "flowchart LR" in diagrams["gui_execution_flow"]
+    assert "Tool Permission Boundary" in diagrams["gui_security_boundary"]
+    assert "apps/ui-tars" in diagrams["gui_module_map"]
 
 
 def test_module_roles_are_not_all_graph_pipeline():
@@ -572,6 +600,8 @@ def test_execution_summary_contains_enterprise_briefing_fields():
     assert "核心能力" in markdown
     assert "主要解决的问题" in markdown
     assert "为什么值得关注" in markdown
+    assert "- 核心能力：\n  - 多模态 GUI Agent" in markdown
+    assert "- 当前不适合直接落地的原因：\n  - 高权限桌面" in markdown
 
 
 def test_enterprise_judgement_is_before_mechanism_section():
@@ -647,6 +677,232 @@ def test_html_contains_gui_agent_security_matrix_and_technical_appendix():
     assert "<details>" in html
     assert "文件类型统计" in html
     assert "Monorepo Workspace 明细" in html
+
+
+def test_gui_agent_report_places_three_diagrams_before_core_module_table():
+    payload = _minimal_gui_payload()
+    payload["diagrams"].update(
+        {
+            "gui_execution_flow": """flowchart LR
+  User["用户任务"] --> App["Desktop App / CLI / Web UI"]
+  subgraph Runtime["Agent Runtime"]
+    Planner["Planner / Task Loop"]
+  end
+  subgraph Model["Model Layer"]
+    VLM["VLM / LLM Provider"]
+  end
+  subgraph Action["Action Layer"]
+    Parser["Action Parser"]
+    Operator["Operator / Executor"]
+  end
+  subgraph Target["受控执行环境"]
+    Browser["Browser"]
+  end
+""",
+            "gui_security_boundary": """flowchart LR
+  subgraph Inputs["输入与上下文"]
+    Screenshot["Screenshot / OCR / UI State"]
+  end
+  subgraph ModelBoundary["模型与数据边界"]
+    Provider["Model Provider"]
+  end
+  subgraph ToolBoundary["工具权限边界"]
+    Tools["MCP / Tools"]
+  end
+  subgraph Execution["高危执行面"]
+    Shell["Shell"]
+  end
+  subgraph Audit["审计与脱敏"]
+    Logs["Audit Logs"]
+  end
+""",
+            "gui_module_map": """flowchart TB
+  subgraph Apps["应用层"]
+    UITars["apps/ui-tars"]
+  end
+  subgraph Runtime["Agent Runtime 层"]
+    AgentTars["multimodal/agent-tars"]
+  end
+  subgraph GuiSdk["GUI Agent SDK 层"]
+    GuiAgent["multimodal/gui-agent"]
+  end
+  subgraph Extension["扩展与工具层"]
+    PDK["infra/pdk"]
+  end
+""",
+        }
+    )
+    markdown = render_markdown(payload)
+
+    assert markdown.find("GUI Agent 任务执行链路图") < markdown.find("核心模块角色表")
+    assert markdown.find("GUI Agent 企业安全边界图") < markdown.find("核心模块角色表")
+    assert markdown.find("Monorepo 模块关系图") < markdown.find("核心模块角色表")
+    assert "User Task → Desktop App" not in markdown
+
+
+def test_html_renders_mermaid_blocks_as_mermaid_divs():
+    payload = _minimal_gui_payload()
+    html = render_html(payload, render_markdown(payload))
+
+    assert '<div class="local-diagram">' in html
+    assert "<svg" in html
+    assert "<path" in html
+    assert "查看图表数据模型" in html
+    assert "查看 Mermaid 源码" not in html
+    assert "<title>" in html
+    assert "<desc>" in html
+    assert "mermaid.esm.min.mjs" not in html
+    assert '<pre class="mermaid">' not in html
+
+
+def test_deep_research_diagram_css_is_responsive():
+    payload = _minimal_gui_payload()
+    html = render_html(payload, render_markdown(payload))
+
+    assert ".local-diagram { background:#fbfaf5; border:1px dashed #cfc6b4; padding:14px; margin:14px 0; overflow-x:auto; }" in html
+    assert "min-width:920px" in html
+
+
+def test_gui_execution_flow_uses_dedicated_svg_layout():
+    payload = _minimal_gui_payload()
+    payload["diagrams"].update(
+        {
+            "gui_execution_flow": """flowchart LR
+  User["用户任务"] --> App["Desktop App / CLI / Web UI"]
+  subgraph Runtime["Agent Runtime"]
+    Planner["Planner / Task Loop"]
+    Env["Environment Adapters"]
+  end
+  subgraph Model["Model Layer"]
+    VLM["VLM / LLM Provider"]
+    Guard["Provider Isolation"]
+  end
+  subgraph Action["Action Layer"]
+    Parser["Action Parser"]
+    Operator["Operator / Executor"]
+  end
+  subgraph Target["受控执行环境"]
+    Browser["Browser"]
+    Desktop["Desktop"]
+    Terminal["Terminal"]
+    FS["Filesystem"]
+  end
+  App --> Planner
+  Planner --> VLM
+  VLM --> Parser
+  Parser --> Operator
+  Operator --> Browser
+  Store --> Planner
+""",
+        }
+    )
+
+    html = render_html(payload, render_markdown(payload))
+
+    assert 'aria-label="GUI Agent execution flow"' in html
+    assert "GUI Agent 任务执行链路" in html
+    svg = html.split('aria-label="GUI Agent execution flow"', 1)[1].split("</svg>", 1)[0]
+    assert "反馈" in svg
+    assert "stroke-dasharray" in svg
+    assert "Repo" not in svg
+    assert "Target" not in svg
+    assert "Env" not in svg
+    assert "Environment Adapters" not in svg
+    assert "C " not in svg
+
+
+def test_gui_security_boundary_is_control_plane_not_complex_flow():
+    payload = _minimal_gui_payload()
+    payload["diagrams"]["gui_security_boundary"] = """flowchart LR
+  subgraph Inputs["输入与上下文"]
+    Screenshot["Screenshot / OCR / UI State"]
+  end
+  subgraph ModelBoundary["模型与数据边界"]
+    Provider["Model Provider"]
+  end
+  subgraph ToolBoundary["工具权限边界"]
+    Tools["MCP / Tools"]
+  end
+  subgraph Execution["高危执行面"]
+    Shell["Shell"]
+    Browser["Browser"]
+    FS["Filesystem"]
+  end
+  subgraph Audit["审计与脱敏"]
+    Logs["Audit Logs"]
+  end
+"""
+    html = render_html(payload, render_markdown(payload))
+
+    svg = html.split('aria-label="GUI Agent security boundary"', 1)[1].split("</svg>", 1)[0]
+    for label in ("数据边界", "模型边界", "工具边界", "执行边界", "审计边界"):
+        assert label in svg
+    assert "Shell" in svg
+    assert "Browser" in svg
+    assert "Filesystem" in svg
+    assert "可验证" not in svg
+    assert "需验证" in svg
+    assert " C " not in svg
+
+
+def test_monorepo_map_is_layered_not_repo_radiation():
+    payload = _minimal_gui_payload()
+    payload["diagrams"]["gui_module_map"] = """flowchart TB
+  subgraph Apps["应用层"]
+    UITars["apps/ui-tars"]
+  end
+  subgraph Runtime["Agent Runtime 层"]
+    AgentTars["multimodal/agent-tars"]
+  end
+  subgraph GuiSdk["GUI Agent SDK 层"]
+    GuiAgent["multimodal/gui-agent"]
+  end
+  subgraph Extension["扩展与工具层"]
+    PDK["infra/pdk"]
+  end
+"""
+    html = render_html(payload, render_markdown(payload))
+
+    svg = html.split('aria-label="Monorepo layer map"', 1)[1].split("</svg>", 1)[0]
+    for label in ("应用层", "Agent Runtime 层", "GUI Agent SDK 层", "扩展与工具层"):
+        assert label in svg
+    assert "Repo--&gt;" not in svg
+    assert "bytedance/UI-TARS-desktop" not in svg
+
+
+def test_issue_pr_mirror_is_enriched_with_pull_request_api_state():
+    collector = ResearchCollector(client=PullRequestMirrorClient())
+
+    context = collector.collect_project_context("owner", "repo", max_files=5, max_issues=5)
+
+    pr_issue = context["closed_issues"][0]
+    assert pr_issue["_source_type"] == "pull_request"
+    assert pr_issue["merged"] is True
+    assert pr_issue["merged_at"] == "2026-05-20T00:00:00Z"
+
+
+def test_weak_adjacent_comparables_are_hidden_from_report_body():
+    payload = _minimal_gui_payload()
+    payload["comparison"]["adjacent_comparables"] = [
+        {"repo": "x/browser-agent", "html_url": "https://x/browser-agent", "reason_selected": "browser automation", "capabilities": "browser agent"},
+        {"repo": "x/trading-agent", "html_url": "https://x/trading", "reason_selected": "generic agent", "capabilities": "trading agent"},
+        {"repo": "x/skill-collection", "html_url": "https://x/skill", "reason_selected": "generic skill collection", "capabilities": "skill collection"},
+    ]
+
+    markdown = render_markdown(payload)
+    adjacent_section = markdown.split("### 相邻生态参考", 1)[1].split("## 6.", 1)[0]
+
+    assert "x/browser-agent" in adjacent_section
+    assert "x/trading-agent" not in adjacent_section
+    assert "x/skill-collection" not in adjacent_section
+
+
+def test_html_preserves_nested_bullet_hierarchy():
+    payload = _minimal_gui_payload()
+    html = render_html(payload, render_markdown(payload))
+
+    assert "<li>核心能力：</li>\n<ul>\n<li>多模态 GUI Agent" in html
+    assert "<li>当前不适合直接落地的原因：</li>\n<ul>" in html
 
 
 def test_negative_evidence_body_is_limited_and_full_evidence_goes_to_appendix():
@@ -909,6 +1165,40 @@ class SearchFakeClient(FakeClient):
                     ]
                 }
             )
+        return super()._get(path)
+
+
+class PullRequestMirrorClient(FakeClient):
+    def _get(self, path):
+        if "state=open" in path:
+            return FakeResponse([])
+        if "state=closed" in path:
+            return FakeResponse(
+                [
+                    {
+                        "number": 7,
+                        "state": "closed",
+                        "title": "fix(security): harden token handling",
+                        "body": "token fix",
+                        "html_url": "https://github.com/owner/repo/pull/7",
+                        "pull_request": {"url": "https://api.github.com/repos/owner/repo/pulls/7"},
+                    }
+                ]
+            )
+        if path.endswith("/pulls/7"):
+            return FakeResponse(
+                {
+                    "number": 7,
+                    "state": "closed",
+                    "merged": True,
+                    "merged_at": "2026-05-20T00:00:00Z",
+                    "closed_at": "2026-05-20T00:10:00Z",
+                    "body": "merged token fix",
+                    "html_url": "https://github.com/owner/repo/pull/7",
+                }
+            )
+        if "/pulls" in path:
+            return FakeResponse([])
         return super()._get(path)
 
 
