@@ -24,6 +24,14 @@ def build_diagrams(
                 "gui_module_map": build_gui_module_map_diagram(context, repo_structure, architecture),
             }
         )
+    if (project_archetype or {}).get("primary") == "code_knowledge_graph":
+        diagrams.update(
+            {
+                "code_graph_build_flow": build_code_graph_build_flow_diagram(context, architecture),
+                "code_graph_security_boundary": build_code_graph_security_boundary_diagram(context, architecture),
+                "code_graph_module_map": build_code_graph_module_map_diagram(context, repo_structure, architecture),
+            }
+        )
     return diagrams
 
 
@@ -214,6 +222,84 @@ def build_gui_module_map_diagram(context: dict[str, Any], repo_structure: dict[s
   GuiAgent --> Operators
   AgentTars --> MCP
   PDK -. supports .-> MCP
+"""
+
+
+def build_code_graph_build_flow_diagram(context: dict[str, Any], architecture: dict[str, Any]) -> str:
+    repo = context.get("repo", "target repo")
+    stages = _pipeline_stages(architecture)
+    labels = {stage.get("name"): stage.get("module") or "待验证" for stage in stages if isinstance(stage, dict)}
+    parser = labels.get("parser / extractor", _first_core(architecture, ("parser", "tree-sitter", "extract")))
+    graph = labels.get("graph builder", _first_core(architecture, ("graph", "node", "edge", "builder")))
+    storage = labels.get("cache / incremental update", _first_core(architecture, ("store", "cache", "index", "sqlite", "neo4j")))
+    query = labels.get("query / affected analysis", _first_core(architecture, ("query", "search", "rag", "context")))
+    output = labels.get("wiki / html / json 输出", _first_core(architecture, ("wiki", "html", "json", "export", "mcp")))
+    return f"""flowchart LR
+  subgraph BuildFlow["Code Knowledge Graph 构建链路"]
+    Repo["Repo / Source Files\\n{repo}"]
+    Parser["Parser / Tree-sitter\\n{parser}"]
+    Symbols["Symbol / Dependency Extraction"]
+    Graph["Graph Builder\\n{graph}"]
+    Store["Graph Store / Cache\\n{storage}"]
+    Query["Query / RAG / Agent Context\\n{query}"]
+    Output["Coding Agent / Wiki / JSON / MCP\\n{output}"]
+  end
+  Repo --> Parser --> Symbols --> Graph --> Store --> Query --> Output
+"""
+
+
+def build_code_graph_security_boundary_diagram(context: dict[str, Any], architecture: dict[str, Any]) -> str:
+    storage = _first_core(architecture, ("store", "cache", "index", "sqlite", "neo4j"))
+    query = _first_core(architecture, ("query", "search", "rag", "context", "mcp"))
+    return f"""flowchart TB
+  subgraph CodeInput["代码输入边界"]
+    Repo["Repository Files"]
+    Secrets["Secret / Path / Comment Redaction\\n企业需验证"]
+  end
+  subgraph IndexBoundary["索引与存储边界"]
+    LocalIndex["Local Graph Index / Cache\\n{storage}"]
+    Retention["Retention / Deletion Consistency\\n企业需验证"]
+  end
+  subgraph QueryBoundary["查询与权限边界"]
+    Query["Graph Query / Repo Context\\n{query}"]
+    ACL["Repo / Team / Branch ACL\\n企业需补强"]
+  end
+  subgraph AgentBoundary["Agent 调用边界"]
+    Agent["Claude Code / Codex / RAG / MCP"]
+    Guard["Prompt Injection / Data Exfiltration Guard\\n企业需补强"]
+  end
+  Repo --> LocalIndex
+  LocalIndex --> Query
+  Query --> Agent
+"""
+
+
+def build_code_graph_module_map_diagram(context: dict[str, Any], repo_structure: dict[str, Any], architecture: dict[str, Any]) -> str:
+    parser = _first_core(architecture, ("parser", "tree-sitter", "extract"))
+    graph = _first_core(architecture, ("graph", "node", "edge", "builder"))
+    storage = _first_core(architecture, ("store", "cache", "index", "sqlite", "neo4j"))
+    query = _first_core(architecture, ("query", "search", "rag", "context"))
+    output = _first_core(architecture, ("wiki", "html", "json", "mcp", "export"))
+    return f"""flowchart TB
+  subgraph ParseLayer["源码解析层"]
+    Parser["{parser}"]
+    TreeSitter["tree-sitter / language parser\\n如存在"]
+  end
+  subgraph GraphLayer["图谱构建层"]
+    Graph["{graph}"]
+    Relations["symbols / dependencies / call graph"]
+  end
+  subgraph StoreLayer["存储与查询层"]
+    Store["{storage}"]
+    Query["{query}"]
+  end
+  subgraph IntegrationLayer["Agent / RAG 接入层"]
+    Output["{output}"]
+    Agent["Coding Agent / GraphRAG / Repo Context"]
+  end
+  Parser --> Graph
+  Graph --> Store
+  Store --> Output
 """
 
 

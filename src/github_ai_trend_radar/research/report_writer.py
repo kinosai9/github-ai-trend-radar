@@ -906,6 +906,46 @@ def _gui_diagram_sections(diagrams: dict[str, Any], archetype: dict[str, Any]) -
 def _non_gui_architecture_section(diagrams: dict[str, Any], archetype: dict[str, Any]) -> str:
     if archetype.get("primary") == "gui_agent":
         return ""
+    if archetype.get("primary") == "code_knowledge_graph":
+        build_flow = diagrams.get("code_graph_build_flow") or diagrams.get("architecture") or ""
+        security = diagrams.get("code_graph_security_boundary") or ""
+        module_map = diagrams.get("code_graph_module_map") or ""
+        parts = [
+            "### 代码知识图谱构建链路",
+            "",
+            "这张图回答：项目如何把源码转成可供 Coding Agent / GraphRAG 使用的结构化上下文。",
+            "",
+            "```mermaid",
+            str(build_flow),
+            "```",
+        ]
+        if security:
+            parts.extend(
+                [
+                    "",
+                    "### 代码知识图谱企业安全边界",
+                    "",
+                    "这张图回答：企业 PoC 前必须卡住哪些代码输入、索引存储、查询权限和 Agent 调用边界。",
+                    "",
+                    "```mermaid",
+                    str(security),
+                    "```",
+                ]
+            )
+        if module_map:
+            parts.extend(
+                [
+                    "",
+                    "### Repo Context / GraphRAG 模块分层图",
+                    "",
+                    "这张图回答：源码解析、图谱构建、存储查询和 Agent/RAG 接入大概分哪几层。",
+                    "",
+                    "```mermaid",
+                    str(module_map),
+                    "```",
+                ]
+            )
+        return "\n".join(parts)
     return "\n".join(
         [
             f"### {_diagram_title(archetype)}",
@@ -1360,6 +1400,12 @@ def _render_mermaid_local(code: str) -> str:
         svg = _render_gui_security_boundary_svg(parsed)
     elif _is_monorepo_layer_map(parsed):
         svg = _render_monorepo_layer_map_svg(parsed)
+    elif _is_code_graph_build_flow(parsed):
+        svg = _render_code_graph_build_flow_svg(parsed)
+    elif _is_code_graph_security_boundary(parsed):
+        svg = _render_code_graph_security_boundary_svg(parsed)
+    elif _is_code_graph_module_map(parsed):
+        svg = _render_code_graph_module_map_svg(parsed)
     else:
         svg = _render_flowchart_svg(parsed)
     return (
@@ -1384,6 +1430,24 @@ def _is_gui_security_boundary(parsed: dict[str, Any]) -> bool:
 def _is_monorepo_layer_map(parsed: dict[str, Any]) -> bool:
     labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
     return {"应用层", "Agent Runtime 层", "GUI Agent SDK 层", "扩展与工具层"}.issubset(labels)
+
+
+def _is_code_graph_build_flow(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    node_text = " ".join(str(label) for label in parsed.get("nodes", {}).values()).lower()
+    return "Code Knowledge Graph 构建链路" in labels or (
+        "repo / source files" in node_text and "graph builder" in node_text and "agent context" in node_text
+    )
+
+
+def _is_code_graph_security_boundary(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    return {"代码输入边界", "索引与存储边界", "查询与权限边界", "Agent 调用边界"}.issubset(labels)
+
+
+def _is_code_graph_module_map(parsed: dict[str, Any]) -> bool:
+    labels = {str(section.get("label", "")) for section in parsed.get("sections", []) if isinstance(section, dict)}
+    return {"源码解析层", "图谱构建层", "存储与查询层", "Agent / RAG 接入层"}.issubset(labels)
 
 
 def _render_gui_execution_svg(parsed: dict[str, Any]) -> str:
@@ -1575,6 +1639,145 @@ def _render_flowchart_svg(parsed: dict[str, Any]) -> str:
             f'<path d="M {start_x:.1f} {y1:.1f} C {mid_x:.1f} {y1:.1f}, {mid_x:.1f} {y2:.1f}, {end_x:.1f} {y2:.1f}" '
             'fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>'
         )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _render_code_graph_build_flow_svg(parsed: dict[str, Any]) -> str:
+    nodes = parsed.get("nodes", {}) if isinstance(parsed.get("nodes"), dict) else {}
+
+    def label(node_id: str, fallback: str) -> str:
+        return _short_svg_label(str(nodes.get(node_id) or fallback), 30)
+
+    cards = [
+        ("Repo", label("Repo", "Repo / Source Files")),
+        ("Parser", label("Parser", "Parser / Tree-sitter")),
+        ("Symbols", label("Symbols", "Symbol / Dependency Extraction")),
+        ("Graph", label("Graph", "Graph Builder")),
+        ("Store", label("Store", "Graph Store / Cache")),
+        ("Query", label("Query", "Query / RAG / Agent Context")),
+        ("Output", label("Output", "Coding Agent / Wiki / JSON / MCP")),
+    ]
+    node_w = 146
+    node_h = 74
+    gap_x = 24
+    margin_x = 34
+    top_y = 104
+    width = margin_x * 2 + len(cards) * node_w + (len(cards) - 1) * gap_x
+    height = 318
+    positions: dict[str, tuple[float, float]] = {}
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Code Knowledge Graph build flow">',
+        '<title>代码知识图谱构建链路</title>',
+        '<desc>固定横向主流程图，展示代码库文件经过解析、符号与依赖抽取、图谱构建、索引存储、查询检索，最终进入 Coding Agent、GraphRAG 或 MCP 的路径。</desc>',
+        '<defs><marker id="arrow-code-build" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748b"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="34" y="34" fill="#0f172a" font-size="18" font-weight="700">代码知识图谱构建链路</text>',
+        '<text x="34" y="58" fill="#64748b" font-size="12">只画主链路：源码输入 → 解析抽取 → 图谱构建 → 查询/Agent Context；安全边界见下一张图。</text>',
+    ]
+    for index, (node_id, node_label) in enumerate(cards):
+        x = margin_x + index * (node_w + gap_x)
+        positions[node_id] = (x + node_w / 2, top_y + node_h / 2)
+        parts.extend(_svg_node(x, top_y, node_w, node_label, height=node_h))
+        if node_id in {"Repo", "Store", "Output"}:
+            parts.append(_svg_badge(x + node_w - 56, top_y - 11, "需验证", fill="#fff7ed", stroke="#fb923c", color="#9a3412"))
+    for src, dst in [("Repo", "Parser"), ("Parser", "Symbols"), ("Symbols", "Graph"), ("Graph", "Store"), ("Store", "Query"), ("Query", "Output")]:
+        x1, y1 = positions[src]
+        x2, y2 = positions[dst]
+        parts.append(f'<line x1="{x1 + node_w / 2 + 2:.1f}" y1="{y1:.1f}" x2="{x2 - node_w / 2:.1f}" y2="{y2:.1f}" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow-code-build)"/>')
+    parts.append('<rect x="34" y="230" width="720" height="48" rx="12" fill="#eff6ff" stroke="#bfdbfe"/>')
+    parts.append('<text x="52" y="257" fill="#334155" font-size="12">企业评估重点：解析准确性、secret/path 脱敏、删除/移动文件一致性、索引可控性、Agent 查询权限。</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _render_code_graph_security_boundary_svg(parsed: dict[str, Any]) -> str:
+    width = 980
+    margin_x = 52
+    y0 = 76
+    panel_w = 850
+    panel_h = 92
+    gap = 22
+    controls = [
+        ("代码输入边界", ["Repository Files", "Secret / Path / Comment Redaction"], "敏感代码、路径、注释和凭据不外泄", "需验证", "#fff7ed", "#fb923c"),
+        ("索引与存储边界", ["Local Graph Index / Cache", "Retention / Deletion Consistency"], "索引本地可控、删除/移动文件一致", "需验证", "#fff7ed", "#fb923c"),
+        ("查询与权限边界", ["Graph Query / Repo Context", "Repo / Team / Branch ACL"], "按仓库、团队、分支和权限隔离查询", "需补强", "#eff6ff", "#64748b"),
+        ("Agent 调用边界", ["Claude Code / Codex / RAG / MCP", "Prompt Injection / Exfiltration Guard"], "防提示注入、防越权检索、防数据外传", "高风险", "#fef2f2", "#ef4444"),
+    ]
+    height = y0 + len(controls) * panel_h + (len(controls) - 1) * gap + 52
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Code Knowledge Graph enterprise security boundary">',
+        '<title>代码知识图谱企业安全边界</title>',
+        '<desc>四层企业安全控制面图，展示代码输入、索引存储、查询权限和 Agent 调用边界，以及每层落地前必须验证的要求。</desc>',
+        '<defs><marker id="arrow-code-sec" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="52" y="34" fill="#0f172a" font-size="18" font-weight="700">代码知识图谱企业安全边界</text>',
+        '<text x="52" y="56" fill="#64748b" font-size="12">这不是调用流程图，而是企业 PoC 前需要卡住的四个控制面。</text>',
+    ]
+    centers = []
+    for index, (title, items, requirement, badge, fill, stroke) in enumerate(controls):
+        y = y0 + index * (panel_h + gap)
+        centers.append((margin_x + panel_w / 2, y + panel_h))
+        parts.append(f'<rect x="{margin_x}" y="{y}" width="{panel_w}" height="{panel_h}" rx="12" fill="{fill}" stroke="{stroke}"/>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 29}" fill="#0f172a" font-size="15" font-weight="700">{title}</text>')
+        parts.append(_svg_badge(margin_x + panel_w - 74, y + 15, badge, fill="#fffdf8", stroke=stroke, color="#0f172a"))
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 55}" fill="#334155" font-size="13">{html.escape(" · ".join(items))}</text>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 77}" fill="#64748b" font-size="12">企业要求：{html.escape(requirement)}</text>')
+    for index in range(len(centers) - 1):
+        x, y = centers[index]
+        next_y = y0 + (index + 1) * (panel_h + gap)
+        parts.append(f'<line x1="{x}" y1="{y + 4}" x2="{x}" y2="{next_y - 8}" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-code-sec)"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _render_code_graph_module_map_svg(parsed: dict[str, Any]) -> str:
+    nodes = parsed.get("nodes", {}) if isinstance(parsed.get("nodes"), dict) else {}
+
+    def pick(*ids: str, fallback: str) -> str:
+        for node_id in ids:
+            if nodes.get(node_id):
+                return _short_svg_label(str(nodes[node_id]), 30)
+        return fallback
+
+    layers = [
+        ("源码解析层", [(pick("Parser", fallback="Parser / Extractor"), "语言解析与源码切片"), (pick("TreeSitter", fallback="tree-sitter / parser"), "多语言语法能力")], "#eff6ff"),
+        ("图谱构建层", [(pick("Graph", fallback="Graph Builder"), "节点、边和依赖关系"), (pick("Relations", fallback="symbols / call graph"), "符号/调用/依赖抽取")], "#f0fdf4"),
+        ("存储与查询层", [(pick("Store", fallback="Graph Store / Cache"), "本地索引和增量更新"), (pick("Query", fallback="Query / Search"), "检索、影响分析、上下文查询")], "#fff7ed"),
+        ("Agent / RAG 接入层", [(pick("Output", fallback="Wiki / JSON / MCP"), "导出与工具接口"), (pick("Agent", fallback="Coding Agent / GraphRAG"), "Agent Context 增强")], "#f8fafc"),
+    ]
+    width = 1040
+    margin_x = 48
+    y0 = 74
+    layer_h = 124
+    gap = 22
+    height = y0 + len(layers) * layer_h + (len(layers) - 1) * gap + 44
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Repo Context GraphRAG layer map">',
+        '<title>Repo Context / GraphRAG 模块分层图</title>',
+        '<desc>分层卡片图，展示代码知识图谱项目通常包含的源码解析层、图谱构建层、存储查询层和 Agent/RAG 接入层。</desc>',
+        '<defs><marker id="arrow-code-layer" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/></marker></defs>',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#fbfaf5"/>',
+        '<text x="48" y="34" fill="#0f172a" font-size="18" font-weight="700">Repo Context / GraphRAG 模块分层图</text>',
+        '<text x="48" y="56" fill="#64748b" font-size="12">只展示主要能力层，不画所有文件依赖；详细职责见核心模块角色表。</text>',
+    ]
+    centers = []
+    for index, (title, cards, fill) in enumerate(layers):
+        y = y0 + index * (layer_h + gap)
+        parts.append(f'<rect x="{margin_x}" y="{y}" width="{width - margin_x * 2}" height="{layer_h}" rx="14" fill="{fill}" stroke="#d8d1c2"/>')
+        parts.append(f'<text x="{margin_x + 18}" y="{y + 30}" fill="#0f172a" font-size="15" font-weight="700">{title}</text>')
+        card_w = 392
+        for card_index, (path, role) in enumerate(cards[:2]):
+            x = margin_x + 18 + card_index * (card_w + 18)
+            card_y = y + 46
+            parts.append(f'<rect x="{x}" y="{card_y}" width="{card_w}" height="58" rx="8" fill="#fffdf8" stroke="#c9c0ae"/>')
+            parts.append(f'<text x="{x + 10}" y="{card_y + 22}" fill="#0f172a" font-size="12" font-weight="700">{html.escape(path)}</text>')
+            parts.append(f'<text x="{x + 10}" y="{card_y + 43}" fill="#64748b" font-size="11">{html.escape(role)}</text>')
+        centers.append((width / 2, y + layer_h))
+    for index in range(len(centers) - 1):
+        x, y = centers[index]
+        next_y = y0 + (index + 1) * (layer_h + gap)
+        parts.append(f'<line x1="{x}" y1="{y + 4}" x2="{x}" y2="{next_y - 8}" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-code-layer)"/>')
     parts.append("</svg>")
     return "".join(parts)
 

@@ -495,6 +495,49 @@ def test_code_knowledge_graph_diagram_contains_graph_builder():
     assert "graph builder" in flow
 
 
+def test_code_knowledge_graph_diagrams_are_semantic_fixed_svg():
+    payload = _minimal_code_graph_payload()
+    payload["diagrams"] = build_diagrams(
+        payload["context"],
+        payload["repo_structure"],
+        payload["architecture"],
+        payload["enterprise_fit"],
+        project_archetype=payload["project_archetype"],
+    )
+
+    html = render_html(payload, render_markdown(payload))
+
+    assert "代码知识图谱构建链路" in html
+    assert "代码知识图谱企业安全边界" in html
+    assert "Repo Context / GraphRAG 模块分层图" in html
+    assert "查看图表数据模型" in html
+    assert "Code Knowledge Graph 构建链路" in payload["diagrams"]["code_graph_build_flow"]
+    assert "<title>代码知识图谱构建链路</title>" in html
+    assert "<title>代码知识图谱企业安全边界</title>" in html
+    assert "<title>Repo Context / GraphRAG 模块分层图</title>" in html
+    assert "<title>流程图</title>" not in html
+
+
+def test_code_knowledge_graph_svg_security_boundary_contains_enterprise_controls():
+    payload = _minimal_code_graph_payload()
+    payload["diagrams"] = build_diagrams(
+        payload["context"],
+        payload["repo_structure"],
+        payload["architecture"],
+        payload["enterprise_fit"],
+        project_archetype=payload["project_archetype"],
+    )
+
+    html = render_html(payload, render_markdown(payload))
+
+    assert "代码输入边界" in html
+    assert "索引与存储边界" in html
+    assert "查询与权限边界" in html
+    assert "Agent 调用边界" in html
+    assert "Secret / Path / Comment Redaction" in html
+    assert "Repo / Team / Branch ACL" in html
+
+
 def test_html_tables_render_links_and_do_not_show_python_repr():
     payload = {
         "repo": "owner/repo",
@@ -932,6 +975,64 @@ def test_negative_evidence_body_is_limited_and_full_evidence_goes_to_appendix():
     assert "bug 7" in before_appendix
     assert "bug 8" not in before_appendix
     assert "bug 11" in markdown.split("完整 Issue / PR evidence", 1)[1]
+
+
+def _minimal_code_graph_payload() -> dict:
+    return {
+        "repo": "safishamsi/graphify",
+        "generated_at": "now",
+        "project_archetype": {"primary": "code_knowledge_graph", "confidence": "high", "evidence": ["tree-sitter", "knowledge graph"]},
+        "context": {"metadata": {"description": "code knowledge graph", "stargazers_count": 1000, "html_url": "https://github.com/safishamsi/graphify"}, "releases": []},
+        "repo_structure": {
+            "file_type_counts": {".py": 10},
+            "entrypoints": ["src/graphify/cli.py"],
+            "main_languages": ["Python"],
+            "monorepo_structure": {},
+            "package_files": ["pyproject.toml"],
+        },
+        "architecture": {
+            "core_modules": [
+                {"path": "src/graphify/parser.py", "role": "Parser / tree-sitter extraction", "evidence": ["tree-sitter"]},
+                {"path": "src/graphify/graph_builder.py", "role": "Graph builder", "evidence": ["node/edge"]},
+                {"path": "src/graphify/query.py", "role": "Query / repo context", "evidence": ["search"]},
+            ],
+            "external_dependencies": ["tree-sitter", "networkx"],
+            "graph_pipeline": {
+                "stages": [
+                    {"name": "parser / extractor", "module": "src/graphify/parser.py"},
+                    {"name": "graph builder", "module": "src/graphify/graph_builder.py"},
+                    {"name": "cache / incremental update", "module": "src/graphify/cache.py"},
+                    {"name": "query / affected analysis", "module": "src/graphify/query.py"},
+                    {"name": "wiki / html / json 输出", "module": "src/graphify/export.py"},
+                ]
+            },
+        },
+        "negative_signals": {"negative_evidence": [], "keyword_counts": []},
+        "enterprise_fit": {
+            "deployment_feasibility": "需要进一步验证",
+            "fit_with_existing_stack": "与 Coding Agent 上下文增强、业务理解编译层、企业知识库 / GraphRAG 和代码资产结构化方向存在明确相关性。",
+            "final_rating": {"risk_level": "high", "technical_value": 4, "enterprise_fit": 2, "implementation_feasibility": 2, "strategic_relevance": 4},
+            "company_direction_fit": {"coding_agent_context": "Coding Agent 上下文增强"},
+            "enterprise_action_plan": {"go_no_go_criteria": ["Go：可本地索引", "No-go：无法脱敏 secret"]},
+        },
+        "final_verdict": {
+            "recommendation": "hold",
+            "risk_level": "high",
+            "enterprise_readiness": "low",
+            "implementation_feasibility": "low",
+            "technical_potential": "high",
+            "community_signal": "high",
+            "open_source_engineering_maturity": "medium",
+            "one_sentence": "值得关注但暂缓直接落地。",
+            "blocking_risks": ["未验证 secret/path 泄露风险。"],
+        },
+        "evidence": {"positive": [], "uncertainty": []},
+        "analysis_confidence": {"architecture": "medium"},
+        "llm_analysis": {"enabled": False},
+        "ecosystem_context": {},
+        "comparison": {"table": {"columns": ["项目"], "rows": []}},
+        "diagrams": {"architecture": "", "mindmap": "mindmap\n root"},
+    }
 
 
 def _minimal_gui_payload() -> dict:
