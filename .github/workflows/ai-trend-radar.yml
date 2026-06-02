@@ -36,7 +36,6 @@ on:
         type: string
         default: "20"
   schedule:
-    - cron: "45 0 * * *"
     - cron: "30 13 * * 0"
     - cron: "30 1 1 * *"
 

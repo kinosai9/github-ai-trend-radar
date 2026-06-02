@@ -420,6 +420,20 @@ def test_enterprise_fit_uses_company_profile():
     assert fit["final_rating"]["enterprise_fit"] >= 3
 
 
+def test_code_knowledge_graph_stack_fit_does_not_claim_no_overlap():
+    fit = evaluate_enterprise_fit(
+        {"metadata": {"topics": ["knowledge-graph"]}, "readme": "code knowledge graph graphrag"},
+        {"docs_paths": [], "examples_paths": [], "deployment_files": [], "package_files": ["package.json"], "main_languages": ["TypeScript"]},
+        {"security_boundary": []},
+        {"enterprise_blockers": []},
+        {"company": {"current_stack": ["Python"], "integration_targets": []}},
+        project_archetype={"primary": "code_knowledge_graph"},
+    )
+
+    assert "未发现明显技术栈交集" not in fit["fit_with_existing_stack"]
+    assert "Coding Agent 上下文增强" in fit["fit_with_existing_stack"]
+
+
 def test_gui_agent_enterprise_poc_mentions_permissions_logs_human_private_model():
     fit = evaluate_enterprise_fit(
         {"metadata": {"topics": ["gui-agent"]}, "readme": "desktop agent"},

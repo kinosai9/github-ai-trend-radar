@@ -108,7 +108,7 @@ def evaluate_enterprise_fit(
         "deployment_feasibility": "需要进一步验证" if maturity_penalty else "较高" if private_deploy or repo_structure.get("deployment_files") else "需要进一步验证",
         "data_security_considerations": _security_considerations(architecture),
         "permission_audit_considerations": "需要确认权限模型、日志审计和租户隔离能力。",
-        "fit_with_existing_stack": _stack_fit(company, repo_structure),
+        "fit_with_existing_stack": _stack_fit(company, repo_structure, archetype=archetype),
         "short_term_action": "先完成安全/源码证据复核；不要直接进入生产依赖。" if maturity_penalty else "阅读 README 与 examples，完成本地只读验证；不要直接进入生产依赖。",
         "medium_term_action": "仅在阻塞风险清除后再做 PoC，重点验证私有化部署、权限边界和二开成本。" if maturity_penalty else "若核心能力匹配，可做 PoC，重点验证私有化部署、权限边界和二开成本。",
         "not_recommended_if": company.get("unacceptable_risks", []),
@@ -172,8 +172,17 @@ def _security_considerations(architecture: dict[str, Any]) -> list[str]:
     ]
 
 
-def _stack_fit(company: dict[str, Any], repo_structure: dict[str, Any]) -> str:
+def _stack_fit(company: dict[str, Any], repo_structure: dict[str, Any], *, archetype: str = "unknown") -> str:
     stack = set(str(item).lower() for item in company.get("current_stack", []) or [])
     languages = set(str(item).lower() for item in repo_structure.get("main_languages", []) or [])
     overlap = sorted(stack & languages)
-    return f"与当前技术栈交集：{', '.join(overlap)}" if overlap else "未发现明显技术栈交集，需要结合二开计划判断。"
+    if overlap:
+        return f"与当前技术栈交集：{', '.join(overlap)}"
+    if archetype == "code_knowledge_graph":
+        return (
+            "与 Coding Agent 上下文增强、业务理解编译层、企业知识库 / GraphRAG 和代码资产结构化方向存在明确相关性；"
+            "语言栈未直接重合时，仍可先作为只读 PoC 和架构路线参考。"
+        )
+    if archetype == "rag_knowledge":
+        return "与企业知识库、GraphRAG、语义检索和知识资产治理方向存在相关性；需结合当前数据栈验证接入方式。"
+    return "与公司方向的业务相关性需要通过 PoC 验证，不宜仅按语言栈交集判断。"

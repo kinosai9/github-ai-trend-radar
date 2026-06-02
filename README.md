@@ -363,7 +363,7 @@ data/watchlist_queue/YYYY-MM-DD-period-watchlist-queue.json
 
 ## GitHub Actions 自动化
 
-仓库已提供 `.github/workflows/ai-trend-radar.yml`。启用后可以手动触发或按计划自动生成日报，流程是：
+仓库已提供 `.github/workflows/ai-trend-radar.yml`。启用后可以手动触发日报 / 周报 / 月报；定时任务默认只生成并推送周报和月报，避免日报重复内容过多。流程是：
 
 1. 采集 GitHub AI 趋势候选
 2. 规则评分
@@ -375,11 +375,10 @@ data/watchlist_queue/YYYY-MM-DD-period-watchlist-queue.json
 
 定时触发周期：
 
-- 日报：北京时间每天 08:45，对应 UTC `45 0 * * *`
 - 周报：北京时间每周日 21:30，对应 UTC `30 13 * * 0`
 - 月报：北京时间每月 1 日 09:30，对应 UTC `30 1 1 * *`
 
-GitHub Actions schedule 使用 UTC，并且可能存在数分钟到十几分钟延迟。workflow 会根据 `github.event.schedule` 自动解析 period；手动触发时 `inputs.period` 优先。
+GitHub Actions schedule 使用 UTC，并且可能存在数分钟到十几分钟延迟。workflow 会根据 `github.event.schedule` 自动解析 period；手动触发时 `inputs.period` 优先。日报保留为手动触发选项，需要临时观察时可在 Actions 页面选择 `period=daily` 运行。
 
 建议配置 GitHub Pages：
 
@@ -425,10 +424,10 @@ https://username.github.io/github-ai-trend-radar
 本地对应验证命令：
 
 ```bash
-python -m github_ai_trend_radar.main resolve-run-context --event-name schedule --schedule "45 0 * * *"
-python -m github_ai_trend_radar.main run --period daily --use-llm --render --enrich-report --enrich-overview --llm-top-n 5 --report-enrich-top-n 5
-python -m github_ai_trend_radar.main build-site --period daily --date latest --keep-daily 60 --keep-weekly 8 --keep-monthly 12
-python -m github_ai_trend_radar.main push --period daily --date latest --channel pushplus --dry-run
+python -m github_ai_trend_radar.main resolve-run-context --event-name schedule --schedule "30 13 * * 0"
+python -m github_ai_trend_radar.main run --period weekly --use-llm --render --enrich-report --enrich-overview --llm-top-n 5 --report-enrich-top-n 5
+python -m github_ai_trend_radar.main build-site --period weekly --date latest --keep-daily 60 --keep-weekly 8 --keep-monthly 12
+python -m github_ai_trend_radar.main push --period weekly --date latest --channel pushplus --dry-run
 ```
 
 Actions 会上传 `data/snapshots`、`data/reports/*run-summary.json` 和 `data/reports/*report-enriched.json` 为 workflow artifact，便于排查采集、评分、渲染或推送问题。debug artifacts 默认保留 7 天，不长期保留所有 raw API snapshot。
