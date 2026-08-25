@@ -8,6 +8,15 @@ def test_topics_default_yaml_can_be_loaded():
 
     assert "ai_agent" in topics
     assert "mcp" in topics
+    assert "gui_computer_use" in topics
+    assert "physical_ai" in topics
+    assert "personal_world_model" in topics
+
+
+def test_default_topics_keep_query_count_bounded():
+    topics = load_topics_config("config")
+
+    assert all(len(topic.get("include_queries", [])) <= 3 for topic in topics.values())
 
 
 def test_topics_local_overrides_default(tmp_path):

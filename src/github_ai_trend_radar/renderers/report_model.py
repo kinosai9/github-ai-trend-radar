@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from github_ai_trend_radar.renderers.i18n import ACTION_ZH, BUCKET_ZH, ZH_LABELS
+from github_ai_trend_radar.renderers.i18n import ACTION_ZH, BUCKET_ZH, ZH_LABELS, topic_label
 from github_ai_trend_radar.storage.files import load_json
 
 PERIOD_LABELS = {
@@ -367,6 +367,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
         action = "ignore" if bucket == "noise" else "read" if bucket == "breakout" else "watch"
     pushed_at = _first_text(candidate.get("pushed_at"), metadata.get("pushed_at"))
     topics = _safe_list(candidate.get("matched_focus_topics"))
+    topic_labels = [topic_label(str(topic)) for topic in topics]
     source_hits = _safe_list(candidate.get("source_hits"))
     llm_is_noise = llm_analysis.get("llm_is_noise") is True
 
@@ -381,6 +382,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
             "recommended_action_label": ACTION_ZH.get(action, action),
             "source_hits": source_hits,
             "matched_focus_topics": topics,
+            "matched_focus_topic_labels": topic_labels,
             "matched_keywords": _safe_list(candidate.get("matched_keywords")),
             "language": _first_text(candidate.get("language"), metrics.get("language"), metadata.get("language")),
             "stars": _first_number(metrics.get("stars"), candidate.get("stars")),
@@ -401,21 +403,21 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
             "llm_maturity": _safe_text(llm_analysis.get("llm_maturity")),
             "llm_trend_judgement": _safe_text(llm_analysis.get("llm_trend_judgement")),
             "summary": summary,
-            "reason_to_watch": _first_text(
+            "reason_to_watch": _first_chinese_text(
                 llm_analysis.get("why_it_matters"),
                 llm_analysis.get("technical_value"),
                 _fallback_reason(candidate, source_hits),
             ),
-            "engineering_takeaway": _first_text(
+            "engineering_takeaway": _first_chinese_text(
                 llm_analysis.get("enterprise_fit"),
-                _fallback_takeaway(topics),
+                _fallback_takeaway(topic_labels),
             ),
             "analysis_source": "LLM 校准" if candidate.get("llm_status") == "ok" else "规则评分",
-            "core_idea": _safe_text(llm_analysis.get("core_idea")),
-            "technical_value": _safe_text(llm_analysis.get("technical_value")),
-            "why_it_matters": _safe_text(llm_analysis.get("why_it_matters")),
-            "enterprise_fit": _safe_text(llm_analysis.get("enterprise_fit")),
-            "risks": _safe_list(llm_analysis.get("risks"))[:3],
+            "core_idea": _safe_chinese_text(llm_analysis.get("core_idea")),
+            "technical_value": _safe_chinese_text(llm_analysis.get("technical_value")),
+            "why_it_matters": _safe_chinese_text(llm_analysis.get("why_it_matters")),
+            "enterprise_fit": _safe_chinese_text(llm_analysis.get("enterprise_fit")),
+            "risks": _safe_chinese_list(llm_analysis.get("risks"))[:3],
             "noise": {
                 "is_noise": bool(noise.get("is_noise", False)) or llm_is_noise,
                 "noise_reasons": _safe_list(noise.get("noise_reasons")),
@@ -457,13 +459,16 @@ def _quality_tip(gate: dict[str, Any]) -> str:
 
 
 def _build_summary(candidate: dict[str, Any], llm_analysis: dict[str, Any]) -> str:
-    summary = _first_text(llm_analysis.get("summary_for_report"), llm_analysis.get("core_idea"))
+    summary = _first_chinese_text(llm_analysis.get("summary_for_report"), llm_analysis.get("core_idea"))
     if summary:
         return summary
     description = _safe_text(candidate.get("description"))
-    if description:
+    if description and _is_chinese_enough(description):
         return f"项目描述：{description}"
-    topics = "、".join(_safe_list(candidate.get("matched_focus_topics"))) or "当前命中主题"
+    topic_labels = [topic_label(str(topic)) for topic in _safe_list(candidate.get("matched_focus_topics"))]
+    topics = "、".join(topic_labels[:3]) or "当前命中主题"
+    if description:
+        return f"该项目围绕 {topics} 方向出现趋势信号；原始描述偏英文或信息有限，建议结合 README 复核真实能力和成熟度。"
     return f"该项目围绕 {topics} 方向，近期在 GitHub 出现趋势信号，建议结合 README 判断真实成熟度。"
 
 
@@ -480,6 +485,37 @@ def _fallback_reason(candidate: dict[str, Any], source_hits: list[Any]) -> str:
 def _fallback_takeaway(topics: list[Any]) -> str:
     topic_text = "、".join(str(topic) for topic in topics[:3]) or "相关技术"
     return f"工程启发：可从 {topic_text} 方向评估其在企业知识库、Agent 工作流或本地部署中的复用价值。"
+
+
+def _is_chinese_enough(text: str, *, min_cjk_chars: int = 6, min_cjk_ratio: float = 0.18) -> bool:
+    content = str(text or "").strip()
+    if not content:
+        return False
+    cjk = sum(1 for char in content if "\u4e00" <= char <= "\u9fff")
+    letters = sum(1 for char in content if char.isalpha() or ("\u4e00" <= char <= "\u9fff"))
+    return cjk >= min_cjk_chars and (letters == 0 or cjk / letters >= min_cjk_ratio)
+
+
+def _safe_chinese_text(value: Any) -> str:
+    text = _safe_text(value)
+    return text if _is_chinese_enough(text) else ""
+
+
+def _safe_chinese_list(value: Any) -> list[str]:
+    return [str(item) for item in _safe_list(value) if _is_chinese_enough(str(item))]
+
+
+def _first_chinese_text(*values: Any) -> str:
+    fallback = ""
+    for value in values:
+        text = _safe_text(value)
+        if not text:
+            continue
+        if _is_chinese_enough(text):
+            return text
+        if not fallback:
+            fallback = text
+    return "" if fallback else ""
 
 
 def _is_noise_summary(item: dict[str, Any]) -> bool:
@@ -571,7 +607,7 @@ def _top_topics(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     counter: Counter[str] = Counter()
     for candidate in candidates:
         counter.update(str(topic) for topic in _safe_list(candidate.get("matched_focus_topics")))
-    return [{"topic": topic, "count": count} for topic, count in counter.most_common(5)]
+    return [{"topic": topic, "label": topic_label(topic), "count": count} for topic, count in counter.most_common(5)]
 
 
 def build_noise_summary(candidates: list[dict[str, Any]], *, limit: int = 5) -> dict[str, Any]:
@@ -630,7 +666,7 @@ def _build_observations(
 ) -> list[str]:
     observations = []
     if topics:
-        topic_text = "、".join(f"{item['topic']}({item['count']})" for item in topics[:3])
+        topic_text = "、".join(str(item.get("label") or item.get("topic")) for item in topics[:3])
         observations.append(f"本期信号最集中在 {topic_text}，这些方向适合作为后续技术情报主线。")
     else:
         observations.append("本期主题分布较分散，建议优先看趋势突破和多源命中项目。")

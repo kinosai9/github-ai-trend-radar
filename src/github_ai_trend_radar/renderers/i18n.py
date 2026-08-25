@@ -51,6 +51,25 @@ BUCKET_ZH = {
     "noise": "已过滤信号",
 }
 
+TOPIC_ZH = {
+    "ai_agent": "AI Agent",
+    "mcp": "MCP / 模型上下文协议",
+    "coding_agent": "Coding Agent / 软件工程智能体",
+    "rag_knowledge": "RAG / 知识库",
+    "llm_infra": "LLM Infra / 模型基础设施",
+    "vector_database": "Vector DB / 向量检索",
+    "gui_computer_use": "GUI Agent / Computer Use",
+    "physical_ai": "Physical AI / 物理世界智能",
+    "embodied_ai": "Embodied AI / 具身智能",
+    "edge_on_device_ai": "端侧 / 边缘 AI",
+    "ambient_iot_ai": "Ambient / IoT AI",
+    "personal_world_model": "Personal World Model / 个人世界模型",
+}
+
 
 def zh_label(key: str, default: str | None = None) -> str:
     return ZH_LABELS.get(key, default or key)
+
+
+def topic_label(topic: str) -> str:
+    return TOPIC_ZH.get(str(topic), str(topic))

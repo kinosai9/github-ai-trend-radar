@@ -47,7 +47,7 @@ Copy-Item .env.example .env.local
 
 ## Topics 配置
 
-默认主题配置位于 `config/topics.default.yaml`，覆盖 AI Agent、MCP、Coding Agent、RAG/Knowledge、LLM Infra、Vector DB 六类方向。公开仓库只提交默认配置；本地私有偏好请写入未跟踪的 `config/topics.local.yaml`，或通过环境变量 `TOPICS_JSON` 注入。
+默认主题配置位于 `config/topics.default.yaml`，覆盖 AI Agent、MCP、Coding Agent、RAG/Knowledge、LLM Infra、Vector DB，以及 GUI Agent / Computer Use、Physical AI、Embodied AI、端侧 / 边缘 AI、Ambient / IoT AI、Personal World Model 等方向。公开仓库只提交通用默认配置；本地私有偏好、公司项目权重和个人研究重点请写入未跟踪的 `config/topics.local.yaml`，或通过环境变量 `TOPICS_JSON` 注入。
 
 配置优先级：
 
@@ -63,6 +63,8 @@ python -m github_ai_trend_radar.main collect --period daily --focus-topics ai_ag
 ```
 
 第一版会限制 GitHub Search 调用量：每个 focus topic 最多 3 条 query，每条 query 最多 2 页，每页 50 条。合并去重后默认最多保留 200 个候选，并只对 top 100 做 GitHub Repo API 和 README 增强。
+
+Personal Physical AI 相关默认主题只保留公开通用方向，例如 GUI Agent、Computer Use、Physical AI、Embodied AI、端侧推理、Ambient / IoT AI 和 Personal World Model。具体项目背景、公司策略、私有场景和优先级不应写入公开仓库，建议通过 `config/topics.local.yaml` 或 GitHub Variables 注入。
 
 ## 规则评分
 
@@ -379,6 +381,12 @@ data/watchlist_queue/YYYY-MM-DD-period-watchlist-queue.json
 - 月报：北京时间每月 1 日 09:30，对应 UTC `30 1 1 * *`
 
 GitHub Actions schedule 使用 UTC，并且可能存在数分钟到十几分钟延迟。workflow 会根据 `github.event.schedule` 自动解析 period；手动触发时 `inputs.period` 优先。日报保留为手动触发选项，需要临时观察时可在 Actions 页面选择 `period=daily` 运行。
+
+如果 GitHub 因仓库长期无活动将 workflow 标记为 `disabled_inactivity`，新的代码提交不会保证自动恢复定时任务。需要在 Actions 页面重新启用该 workflow，或使用 GitHub CLI 执行：
+
+```bash
+gh workflow enable ai-trend-radar.yml --repo owner/repo
+```
 
 建议配置 GitHub Pages：
 

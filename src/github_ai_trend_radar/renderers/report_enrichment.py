@@ -7,6 +7,7 @@ from typing import Any
 
 from github_ai_trend_radar.llm.client import LLMClient
 from github_ai_trend_radar.llm.json_utils import parse_json_or_error
+from github_ai_trend_radar.renderers.i18n import topic_label
 
 REPORT_ENRICH_PROMPT = """你是企业 AI 工程技术情报编辑。请只基于输入项目字段，补齐中文日报卡片内容。
 只输出 JSON，不要输出 Markdown。
@@ -102,6 +103,25 @@ def ensure_report_enrichment_status(report: dict[str, Any]) -> dict[str, Any]:
             else:
                 item["report_enrichment_status"] = "skipped"
     return report
+
+
+def normalize_report_language(report: dict[str, Any]) -> dict[str, Any]:
+    """Normalize old report-model caches so visible card copy stays Chinese."""
+
+    normalized = deepcopy(report)
+    for section in ("breakout", "deep_research", "long_term", "noise"):
+        for item in normalized.get("sections", {}).get(section, []):
+            if item.get("matched_focus_topics") and not item.get("matched_focus_topic_labels"):
+                item["matched_focus_topic_labels"] = [
+                    topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])
+                ]
+            _apply_rule_fallback(item)
+    for item in normalized.get("top_radar", []) or []:
+        if isinstance(item, dict) and item.get("matched_focus_topics") and not item.get("matched_focus_topic_labels"):
+            item["matched_focus_topic_labels"] = [
+                topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])
+            ]
+    return normalized
 
 
 def enrich_report_overview(report: dict[str, Any], client: LLMClient) -> dict[str, Any]:
@@ -258,14 +278,19 @@ def _apply_llm_payload(item: dict[str, Any], payload: dict[str, Any]) -> None:
 
 
 def _apply_rule_fallback(item: dict[str, Any]) -> None:
-    if not item.get("summary"):
-        topics = "、".join(str(topic) for topic in item.get("matched_focus_topics", [])[:3]) or "相关技术"
+    if not _is_chinese_enough(str(item.get("summary") or "")):
+        topics = "、".join(topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])[:3]) or "相关技术"
         item["summary"] = f"该项目围绕 {topics} 方向出现趋势信号，建议结合 README 复核成熟度。"
-    if not item.get("reason_to_watch"):
+    if not _is_chinese_enough(str(item.get("reason_to_watch") or "")):
         source = "多源命中" if len(item.get("source_hits", [])) > 1 else "近期更新"
         item["reason_to_watch"] = f"入选原因：{source}，且主题相关度达到报告展示阈值。"
-    if not item.get("engineering_takeaway"):
+    if not _is_chinese_enough(str(item.get("engineering_takeaway") or "")):
         item["engineering_takeaway"] = "工程启发：可评估其在企业私有化、知识库、Agent 工作流或研发效率场景中的复用价值。"
+    risks = item.get("risks")
+    if isinstance(risks, list):
+        item["risks"] = [str(risk).strip() for risk in risks if _is_chinese_enough(str(risk))][:3]
+    elif risks:
+        item["risks"] = []
     item["analysis_source"] = item.get("analysis_source") or "规则评分"
 
 

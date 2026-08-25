@@ -58,7 +58,6 @@ topics:
       - '"coding agent"'
       - '"software engineering agent"'
       - '"claude code"'
-      - '"ai coding assistant"'
     exclude_keywords:
       - awesome
       - course
@@ -81,7 +80,6 @@ topics:
       - '"retrieval augmented generation"'
       - '"graph rag"'
       - '"knowledge base" "llm"'
-      - '"hybrid search" "rag"'
     exclude_keywords:
       - awesome
       - course
@@ -103,7 +101,6 @@ topics:
       - '"llm inference"'
       - '"model serving" "llm"'
       - '"llm gateway"'
-      - '"openai compatible"'
     exclude_keywords:
       - awesome
       - course
@@ -124,6 +121,145 @@ topics:
       - '"vector database"'
       - '"vector search" "embedding"'
       - '"semantic search" "database"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  gui_computer_use:
+    weight: 0.95
+    keywords:
+      - computer use
+      - gui agent
+      - browser agent
+      - desktop agent
+      - ui automation
+      - operator
+      - screenshot
+      - action parser
+    github_topics:
+      - computer-use
+      - gui-agent
+      - browser-agent
+      - desktop-automation
+    include_queries:
+      - '"computer use" "agent"'
+      - '"gui agent" OR "desktop agent"'
+      - '"browser agent" "automation"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  physical_ai:
+    weight: 0.95
+    keywords:
+      - physical ai
+      - personal physical ai
+      - embodied intelligence
+      - ambient ai
+      - world model
+      - vision language action
+      - safe failure
+    github_topics:
+      - physical-ai
+      - embodied-ai
+      - ambient-ai
+      - world-model
+    include_queries:
+      - '"physical ai" OR "embodied intelligence"'
+      - '"vision language action" OR "VLA" "agent"'
+      - '"world model" "agent"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+      - paper-list
+  embodied_ai:
+    weight: 0.85
+    keywords:
+      - embodied ai
+      - robotics foundation model
+      - domestic robot
+      - robot agent
+      - robot policy
+      - human robot interaction
+    github_topics:
+      - embodied-ai
+      - robotics
+      - robot-learning
+      - robot-agent
+    include_queries:
+      - '"embodied ai" "agent"'
+      - '"robotics foundation model"'
+      - '"robot agent" "llm"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  edge_on_device_ai:
+    weight: 0.8
+    keywords:
+      - on-device ai
+      - edge ai
+      - on-device vlm
+      - local inference
+      - offline fallback
+      - raspberry pi
+      - esp32
+    github_topics:
+      - edge-ai
+      - on-device-ai
+      - local-ai
+      - raspberry-pi
+    include_queries:
+      - '"on-device ai"'
+      - '"edge ai" "llm"'
+      - '"local inference" "vlm"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  ambient_iot_ai:
+    weight: 0.75
+    keywords:
+      - ambient ai
+      - home assistant
+      - mqtt
+      - matter
+      - sensor fusion
+      - device state
+      - wearable ai
+    github_topics:
+      - ambient-ai
+      - home-assistant
+      - mqtt
+      - matter
+      - sensor-fusion
+    include_queries:
+      - '"ambient ai"'
+      - '"home assistant" "llm"'
+      - '"sensor fusion" "agent"'
+    exclude_keywords:
+      - awesome
+      - course
+      - tutorial
+  personal_world_model:
+    weight: 0.9
+    keywords:
+      - personal world model
+      - personal memory
+      - personal ai
+      - long-running agent
+      - local state
+      - context memory
+    github_topics:
+      - personal-ai
+      - ai-memory
+      - world-model
+      - long-running-agent
+    include_queries:
+      - '"personal ai" "memory"'
+      - '"world model" "personal"'
+      - '"long-running agent"'
     exclude_keywords:
       - awesome
       - course

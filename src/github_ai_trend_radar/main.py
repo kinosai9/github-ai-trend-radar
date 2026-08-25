@@ -39,6 +39,7 @@ from github_ai_trend_radar.renderers.pushplus_summary import full_report_url_fro
 from github_ai_trend_radar.renderers.report_enrichment import (
     enrich_report_model,
     ensure_report_enrichment_status,
+    normalize_report_language,
 )
 from github_ai_trend_radar.renderers.report_editorial import enrich_editorial_judgement
 from github_ai_trend_radar.renderers.report_model import (
@@ -523,7 +524,7 @@ def render(args: argparse.Namespace) -> int:
             report_config.setdefault("top_n", {})[key] = value
 
     if resolved.is_report_model:
-        report = ensure_report_enrichment_status(input_payload)
+        report = normalize_report_language(ensure_report_enrichment_status(input_payload))
         save_json(report, resolved.path)
         console.print("[green]Using enriched report model.[/green]")
     else:
@@ -633,7 +634,7 @@ def _load_report_for_delivery(args: argparse.Namespace, *, output_dir: Path) -> 
         report_dir=output_dir,
     )
     if resolved.is_report_model:
-        report = ensure_report_enrichment_status(payload)
+        report = normalize_report_language(ensure_report_enrichment_status(payload))
         save_json(report, resolved.path)
     else:
         report = build_report_model(

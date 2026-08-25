@@ -26,7 +26,7 @@ on:
       focus_topics:
         description: Comma-separated topic keys
         type: string
-        default: ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database
+        default: ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database,gui_computer_use,physical_ai,embodied_ai,edge_on_device_ai,ambient_iot_ai,personal_world_model
       top_n:
         description: Console summary size
         type: string
@@ -60,7 +60,7 @@ jobs:
       USE_LLM: ${{ github.event.inputs.use_llm || 'true' }}
       ENRICH_REPORT: ${{ github.event.inputs.enrich_report || 'true' }}
       PUSHPLUS_ENABLED: ${{ github.event.inputs.pushplus || 'true' }}
-      FOCUS_TOPICS: ${{ github.event.inputs.focus_topics || 'ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database' }}
+      FOCUS_TOPICS: ${{ github.event.inputs.focus_topics || 'ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database,gui_computer_use,physical_ai,embodied_ai,edge_on_device_ai,ambient_iot_ai,personal_world_model' }}
       TOP_N: ${{ github.event.inputs.top_n || '10' }}
       LLM_TOP_N: ${{ github.event.inputs.llm_top_n || '20' }}
       GH_PAT: ${{ secrets.GH_PAT }}

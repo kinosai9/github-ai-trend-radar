@@ -1,7 +1,11 @@
 from github_ai_trend_radar.renderers.html_ink import render_html
-from github_ai_trend_radar.renderers.i18n import zh_label
+from github_ai_trend_radar.renderers.i18n import topic_label, zh_label
 from github_ai_trend_radar.renderers.markdown import render_markdown
-from github_ai_trend_radar.renderers.report_enrichment import enrich_report_model, enrich_report_overview
+from github_ai_trend_radar.renderers.report_enrichment import (
+    enrich_report_model,
+    enrich_report_overview,
+    normalize_report_language,
+)
 from github_ai_trend_radar.renderers.report_model import build_noise_summary, build_report_model, load_report_config
 from github_ai_trend_radar.llm.client import LLMClient
 from github_ai_trend_radar.llm.config import LLMConfig
@@ -63,6 +67,8 @@ def test_i18n_label_mapping():
     assert zh_label("Candidates") == "候选项目"
     assert zh_label("Deep Research") == "深研"
     assert zh_label("GitHub AI Trend Radar") == "GitHub AI 开源趋势雷达"
+    assert topic_label("gui_computer_use") == "GUI Agent / Computer Use"
+    assert topic_label("physical_ai") == "Physical AI / 物理世界智能"
 
 
 def test_report_sections_are_deduplicated_and_ignore_excluded():
@@ -121,6 +127,33 @@ def test_html_has_no_empty_analysis_and_no_major_english_ui_labels():
         assert label not in html
 
 
+def test_english_description_does_not_become_main_report_summary():
+    snapshot = {
+        "period": "daily",
+        "candidates": [
+            {
+                **_candidate("owner/browser-agent", "breakout", "read"),
+                "description": "A browser agent framework for web automation.",
+                "matched_focus_topics": ["gui_computer_use"],
+                "llm_analysis": {
+                    "summary_for_report": "A browser automation agent for repetitive tasks.",
+                    "why_it_matters": "It improves browser workflows.",
+                    "enterprise_fit": "Useful after permission review.",
+                    "risks": ["Needs validation before production."],
+                },
+            }
+        ],
+    }
+    report = build_report_model(snapshot, load_report_config("missing-config-dir"))
+    html = render_html(report)
+    item = report["sections"]["breakout"][0]
+
+    assert "A browser agent framework for web automation" not in item["summary"]
+    assert "A browser agent framework for web automation" not in html
+    assert "原始描述偏英文" in item["summary"]
+    assert "GUI Agent / Computer Use" in html
+
+
 def test_keyword_learning_does_not_leak_into_html_and_noise_actions_are_filtered():
     snapshot = {
         "period": "daily",
@@ -147,6 +180,10 @@ def test_llm_coverage_stat_exists():
 
 def test_enrich_report_without_key_uses_safe_fallback():
     report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
+    item = report["sections"]["breakout"][0]
+    item["summary"] = "An AI workflow toolkit for teams."
+    item["reason_to_watch"] = "It has multiple integrations."
+    item["engineering_takeaway"] = "Useful after validation."
     client = LLMClient(LLMConfig(api_key=""))
 
     enriched = enrich_report_model(report, client, max_items=10)
@@ -155,6 +192,60 @@ def test_enrich_report_without_key_uses_safe_fallback():
     assert enriched["report_enrichment"]["enabled"] is False
     assert enriched["report_enrichment"]["fallback_count"] >= 1
     assert enriched["sections"]["breakout"][0]["report_enrichment_status"] == "fallback"
+
+
+def test_enrich_report_without_key_rewrites_existing_english_fields_to_chinese():
+    report = build_report_model(
+        {"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]},
+        load_report_config("missing-config-dir"),
+    )
+    item = report["sections"]["breakout"][0]
+    item["summary"] = "An AI workflow toolkit for teams."
+    item["reason_to_watch"] = "It has multiple integrations."
+    item["engineering_takeaway"] = "Useful after validation."
+    item["risks"] = ["Production readiness is unclear."]
+    client = LLMClient(LLMConfig(api_key=""))
+
+    enriched = enrich_report_model(report, client, max_items=10)
+    enriched_item = enriched["sections"]["breakout"][0]
+
+    assert "An AI workflow toolkit" not in enriched_item["summary"]
+    assert "入选原因" in enriched_item["reason_to_watch"]
+    assert "工程启发" in enriched_item["engineering_takeaway"]
+    assert enriched_item.get("risks", []) == []
+
+
+def test_old_report_enriched_cache_is_language_normalized():
+    report = {
+        "sections": {
+            "breakout": [
+                {
+                    "repo_full_name": "owner/repo",
+                    "summary": "A framework for computer-use workflows.",
+                    "reason_to_watch": "It is useful for browser automation.",
+                    "engineering_takeaway": "Can be tested by enterprise teams.",
+                    "risks": ["Needs production validation."],
+                    "matched_focus_topics": ["gui_computer_use", "physical_ai"],
+                    "source_hits": ["github_search"],
+                    "analysis_source": "LLM 校准",
+                }
+            ],
+            "deep_research": [],
+            "long_term": [],
+            "noise": [],
+        },
+        "top_radar": [],
+    }
+
+    normalized = normalize_report_language(report)
+    item = normalized["sections"]["breakout"][0]
+
+    assert "A framework for computer-use" not in item["summary"]
+    assert item["matched_focus_topic_labels"] == [
+        "GUI Agent / Computer Use",
+        "Physical AI / 物理世界智能",
+    ]
+    assert item["risks"] == []
 
 
 def test_enrich_overview_without_key_keeps_statistical_notes_and_adds_editorial_fallback():
