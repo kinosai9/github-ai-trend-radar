@@ -150,7 +150,8 @@ def test_english_description_does_not_become_main_report_summary():
 
     assert "A browser agent framework for web automation" not in item["summary"]
     assert "A browser agent framework for web automation" not in html
-    assert "原始描述偏英文" in item["summary"]
+    assert "原始描述偏英文" not in item["summary"]
+    assert "GUI / Browser / Computer Use 自动化项目" in item["summary"]
     assert "GUI Agent / Computer Use" in html
 
 
@@ -213,6 +214,68 @@ def test_enrich_report_without_key_rewrites_existing_english_fields_to_chinese()
     assert "入选原因" in enriched_item["reason_to_watch"]
     assert "工程启发" in enriched_item["engineering_takeaway"]
     assert enriched_item.get("risks", []) == []
+
+
+def test_rule_fallback_does_not_skip_report_llm_enrichment():
+    report = build_report_model(
+        {
+            "period": "daily",
+            "candidates": [
+                {
+                    **_candidate("owner/browser-agent", "breakout", "read"),
+                    "description": "A browser agent framework for repetitive web automation.",
+                    "matched_focus_topics": ["gui_computer_use"],
+                }
+            ],
+        },
+        load_report_config("missing-config-dir"),
+    )
+
+    class Client:
+        available = True
+        model = "fake-model"
+
+        def complete_json(self, messages):
+            return type(
+                "Result",
+                (),
+                {
+                    "ok": True,
+                    "content": '{"summary_for_report":"这是一个面向浏览器自动化的 GUI Agent 工具。","why_it_matters":"它把自然语言任务和浏览器操作连接起来，适合评估企业自动化场景。","enterprise_fit":"可先在低风险网页任务中验证权限边界、日志脱敏和人工确认机制。","risks":["浏览器权限边界需要验证"]}',
+                },
+            )()
+
+    enriched = enrich_report_model(report, Client(), max_items=10)
+    item = enriched["sections"]["breakout"][0]
+
+    assert item["report_enrichment_status"] == "ok"
+    assert item["analysis_source"] == "LLM 报告补齐"
+    assert "浏览器自动化" in item["summary"]
+
+
+def test_rule_summary_is_specific_not_repeated_placeholder():
+    candidates = [
+        {
+            **_candidate("ifixai-ai/iFixAi", "breakout", "read"),
+            "description": "Independent Auditing of AI Agents.",
+            "matched_focus_topics": ["ai_agent"],
+            "matched_keywords": ["ai agent"],
+        },
+        {
+            **_candidate("DeusData/codebase-memory-mcp", "breakout", "read", score=0.7),
+            "description": "High-performance code intelligence MCP server.",
+            "matched_focus_topics": ["mcp"],
+            "matched_keywords": ["mcp server"],
+        },
+    ]
+
+    report = build_report_model({"period": "daily", "candidates": candidates}, load_report_config("missing-config-dir"))
+    summaries = [item["summary"] for item in report["sections"]["breakout"]]
+
+    assert all("原始描述偏英文" not in summary for summary in summaries)
+    assert any("AI Agent 行为审计" in summary for summary in summaries)
+    assert any("代码库上下文理解" in summary or "MCP 工具服务" in summary for summary in summaries)
+    assert len(set(summaries)) == len(summaries)
 
 
 def test_old_report_enriched_cache_is_language_normalized():

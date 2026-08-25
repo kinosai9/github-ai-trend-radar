@@ -57,7 +57,7 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
         return enriched
 
     for item in targets:
-        if _has_chinese_report_fields(item):
+        if _has_chinese_llm_report_fields(item):
             item["report_enrichment_status"] = "skipped"
             continue
         result = client.complete_json(
@@ -221,9 +221,15 @@ def _select_targets(report: dict[str, Any], *, max_items: int) -> list[dict[str,
 def _needs_report_enrichment(item: dict[str, Any]) -> bool:
     """Return True when a displayed card needs last-mile Chinese report copy."""
 
-    if item.get("report_enrichment_status") == "ok" and item.get("analysis_source") == "LLM 报告补齐":
+    if _has_chinese_llm_report_fields(item):
         return False
-    return not _has_chinese_report_fields(item)
+    return True
+
+
+def _has_chinese_llm_report_fields(item: dict[str, Any]) -> bool:
+    if item.get("analysis_source") not in {"LLM 校准", "LLM 报告补齐"}:
+        return False
+    return _has_chinese_report_fields(item)
 
 
 def _has_chinese_report_fields(item: dict[str, Any]) -> bool:

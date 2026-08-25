@@ -377,6 +377,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
             "repo_full_name": _safe_text(candidate.get("repo_full_name")),
             "html_url": _safe_text(candidate.get("html_url")),
             "description": _safe_text(candidate.get("description")),
+            "readme_excerpt": _safe_text(candidate.get("readme_excerpt"))[:1200],
             "radar_bucket": _safe_text(candidate.get("radar_bucket")),
             "radar_bucket_label": BUCKET_ZH.get(_safe_text(candidate.get("radar_bucket")), _safe_text(candidate.get("radar_bucket"))),
             "recommended_action": action,
@@ -469,12 +470,62 @@ def _build_summary(candidate: dict[str, Any], llm_analysis: dict[str, Any]) -> s
     topic_labels = [topic_label(str(topic)) for topic in _safe_list(candidate.get("matched_focus_topics"))]
     topics = _topic_phrase(topic_labels)
     if description:
-        if topics:
-            return f"该项目围绕 {topics} 方向出现趋势信号；原始描述偏英文或信息有限，建议结合 README 复核真实能力和成熟度。"
-        return "该项目来自趋势榜单或主题搜索召回，但主题归因不足；建议先低优先级观察，并复核 README、topics 和近期更新记录。"
+        return _rule_project_summary(candidate, description, topics)
     if topics:
-        return f"该项目围绕 {topics} 方向，近期在 GitHub 出现趋势信号，建议结合 README 判断真实成熟度。"
+        return f"该项目围绕 {topics} 方向出现趋势信号；当前公开描述较少，建议优先复核 README、最近提交和 issue 反馈。"
     return "该项目来自趋势榜单或主题搜索召回，但缺少足够主题描述；建议先作为弱信号保留，不宜直接进入深研。"
+
+
+def _rule_project_summary(candidate: dict[str, Any], description: str, topics: str) -> str:
+    capability = _infer_project_capability(candidate, description)
+    signal = _signal_phrase(candidate)
+    if topics:
+        return f"从仓库描述看，它更像是{capability}；本期因{signal}进入 {topics} 雷达，建议核对 README 和近期 issue。"
+    return f"从仓库描述看，它更像是{capability}；但主题归因还不充分，建议先低优先级复核 README 与近期更新。"
+
+
+def _infer_project_capability(candidate: dict[str, Any], description: str) -> str:
+    text = " ".join(
+        [
+            _safe_text(candidate.get("repo_full_name")),
+            description,
+            " ".join(str(topic) for topic in _safe_list(candidate.get("matched_focus_topics"))),
+            " ".join(str(keyword) for keyword in _safe_list(candidate.get("matched_keywords"))),
+            _safe_text(candidate.get("readme_excerpt"))[:2000],
+        ]
+    ).lower()
+    patterns = [
+        (("audit", "evaluate", "verification", "guardrail"), "AI Agent 行为审计与结果验证工具"),
+        (("codebase", "code intelligence", "knowledge graph", "repo map", "tree-sitter"), "代码库上下文理解或知识图谱工具"),
+        (("mcp server", "model context protocol", "mcp-client", "mcp client"), "MCP 工具服务或协议集成项目"),
+        (("coding agent", "software engineering agent", "claude code", "codex", "cursor"), "Coding Agent 或研发工作流辅助工具"),
+        (("browser", "desktop", "computer use", "gui agent", "ui automation", "operator"), "GUI / Browser / Computer Use 自动化项目"),
+        (("rag", "retrieval", "knowledge base", "semantic search", "hybrid search"), "RAG、知识库或语义检索基础设施"),
+        (("vector", "embedding", "ann search", "pgvector"), "向量检索或 embedding 数据基础设施"),
+        (("gateway", "inference", "model serving", "provider", "openai compatible"), "LLM 网关、推理或模型接入基础设施"),
+        (("workflow", "automation", "orchestration", "n8n"), "Agent 工作流或自动化编排工具"),
+        (("skill", "skills", "plugin", "extension"), "Agent 技能包或插件扩展集合"),
+        (("seo", "marketing", "copywriting", "analytics", "growth"), "面向营销、SEO 或增长场景的 AI 工作流工具"),
+        (("image", "video", "3d", "three.js", "multimodal"), "多模态内容生成或处理工具"),
+    ]
+    for keywords, label in patterns:
+        if any(keyword in text for keyword in keywords):
+            return label
+    topics = _safe_list(candidate.get("matched_focus_topics"))
+    if topics:
+        return f"{topic_label(str(topics[0]))} 相关开源项目"
+    return "AI 工程相关开源项目"
+
+
+def _signal_phrase(candidate: dict[str, Any]) -> str:
+    source_hits = _safe_list(candidate.get("source_hits"))
+    if "ossinsight" in source_hits and "github_search" in source_hits:
+        return "OSSInsight 趋势榜和主题搜索同时命中"
+    if "ossinsight" in source_hits:
+        return "OSSInsight 趋势榜命中"
+    if "github_search" in source_hits:
+        return "主题搜索召回且近期有更新"
+    return "近期趋势信号"
 
 
 def _fallback_reason(candidate: dict[str, Any], source_hits: list[Any]) -> str:
