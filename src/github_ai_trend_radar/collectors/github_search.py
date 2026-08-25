@@ -69,17 +69,48 @@ def build_search_queries(
 
 
 def _headers() -> dict[str, str]:
-    token = os.getenv("GH_PAT") or os.getenv("GITHUB_TOKEN")
-    if not token:
+    tokens = _token_candidates()
+    if not any(token for _, token in tokens):
         LOGGER.warning("GH_PAT/GITHUB_TOKEN is missing; GitHub Search will use the low anonymous rate limit")
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": DEFAULT_USER_AGENT,
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    return headers
+
+
+def _token_candidates() -> list[tuple[str, str]]:
+    candidates = [
+        ("GH_PAT", os.getenv("GH_PAT", "").strip()),
+        ("GITHUB_TOKEN", os.getenv("GITHUB_TOKEN", "").strip()),
+        ("anonymous", ""),
+    ]
+    seen = set()
+    unique = []
+    for name, token in candidates:
+        marker = token or name
+        if marker in seen:
+            continue
+        seen.add(marker)
+        unique.append((name, token))
+    return unique
+
+
+def _headers_for_token(base_headers: dict[str, str], token: str) -> dict[str, str]:
+    headers = dict(base_headers)
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    else:
+        headers.pop("Authorization", None)
     return headers
+
+
+def _is_auth_failure(status_code: int, payload: dict[str, Any]) -> bool:
+    message = str(payload.get("message") or "").lower()
+    return status_code in (401, 403) and any(
+        token in message for token in ("bad credentials", "requires authentication", "resource not accessible")
+    )
 
 
 def _matched_keywords(item: dict[str, Any], topic_config: dict[str, Any]) -> list[str]:
@@ -159,10 +190,14 @@ def collect_github_search(
     session: requests.Session | None = None,
 ) -> tuple[list[dict[str, Any]], Path, SearchSourceStatus]:
     http = session or requests.Session()
-    headers = _headers()
+    base_headers = _headers()
+    token_candidates = _token_candidates()
     raw_entries: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
     rank = 0
+    successful_requests = 0
+    auth_failures = 0
+    disabled_token_sources: set[str] = set()
 
     for topic_name, topic_config in topics.items():
         queries = build_search_queries(
@@ -180,26 +215,57 @@ def collect_github_search(
                     "per_page": min(per_page, 100),
                     "page": page,
                 }
+                payload: dict[str, Any] = {}
+                response: requests.Response | None = None
                 try:
-                    response = http.get(GITHUB_SEARCH_URL, headers=headers, params=params, timeout=timeout)
-                    status_code = response.status_code
-                    try:
-                        payload: dict[str, Any] = response.json()
-                    except ValueError:
-                        payload = {"text": response.text}
-                    raw_entries.append(
-                        {
-                            "topic": topic_name,
-                            "query": query,
-                            "page": page,
-                            "status_code": status_code,
-                            "url": response.url,
-                            "payload": payload,
-                        }
-                    )
+                    active_tokens = [
+                        (token_source, token)
+                        for token_source, token in token_candidates
+                        if token_source not in disabled_token_sources
+                    ] or [("anonymous", "")]
+                    for token_source, token in active_tokens:
+                        response = http.get(
+                            GITHUB_SEARCH_URL,
+                            headers=_headers_for_token(base_headers, token),
+                            params=params,
+                            timeout=timeout,
+                        )
+                        status_code = response.status_code
+                        try:
+                            payload = response.json()
+                        except ValueError:
+                            payload = {"text": response.text}
+                        raw_entries.append(
+                            {
+                                "topic": topic_name,
+                                "query": query,
+                                "page": page,
+                                "status_code": status_code,
+                                "url": response.url,
+                                "token_source": token_source,
+                                "payload": payload,
+                            }
+                        )
+                        if _is_auth_failure(status_code, payload) and token_source != token_candidates[-1][0]:
+                            auth_failures += 1
+                            disabled_token_sources.add(token_source)
+                            LOGGER.warning(
+                                "GitHub Search authentication failed with %s; trying next credential source",
+                                token_source,
+                            )
+                            continue
+                        break
+
+                    if response is None:
+                        continue
+                    if _is_auth_failure(status_code, payload):
+                        auth_failures += 1
+                        LOGGER.warning("GitHub Search authentication failed after trying available credential sources")
+                        continue
                     if status_code in (403, 429):
                         message = str(payload.get("message") or "")
-                        if response.headers.get("X-RateLimit-Remaining") == "0" or "rate limit" in message.lower():
+                        headers_obj = getattr(response, "headers", {}) or {}
+                        if headers_obj.get("X-RateLimit-Remaining") == "0" or "rate limit" in message.lower():
                             raw_path = snapshot_path(snapshot_dir, period, "github-search-raw")
                             save_json(raw_entries, raw_path)
                             return (
@@ -208,6 +274,7 @@ def collect_github_search(
                                 SearchSourceStatus(False, "rate_limit_exhausted", status_code, str(raw_path)),
                             )
                     response.raise_for_status()
+                    successful_requests += 1
                 except requests.RequestException as exc:
                     raw_entries.append(
                         {
@@ -238,4 +305,10 @@ def collect_github_search(
 
     raw_path = snapshot_path(snapshot_dir, period, "github-search-raw")
     save_json(raw_entries, raw_path)
+    if successful_requests == 0 and auth_failures:
+        return candidates, raw_path, SearchSourceStatus(False, "auth_failed", 401, str(raw_path))
+    if successful_requests == 0 and raw_entries:
+        first_error = next((entry.get("error") for entry in raw_entries if entry.get("error")), None)
+        first_status = next((entry.get("status_code") for entry in raw_entries if entry.get("status_code")), None)
+        return candidates, raw_path, SearchSourceStatus(False, str(first_error or "github_search_failed"), first_status, str(raw_path))
     return candidates, raw_path, SearchSourceStatus(True, None, 200, str(raw_path))

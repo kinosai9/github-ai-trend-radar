@@ -4,7 +4,7 @@
 - 数据窗口：{{ report.period_label }}
 - 数据快照：{{ report.snapshot_kind }}
 - 评分状态：{{ report.llm_status_label }}
-- 主区 LLM 分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
+- 主区中文分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
 - LLM 报告补齐：{% if report.report_enrichment.enabled %}已启用{% else %}未启用{% endif %}
 
 ## 本期判断

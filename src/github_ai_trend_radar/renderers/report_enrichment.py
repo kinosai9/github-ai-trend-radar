@@ -116,6 +116,8 @@ def normalize_report_language(report: dict[str, Any]) -> dict[str, Any]:
                     topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])
                 ]
             _apply_rule_fallback(item)
+    if isinstance(normalized.get("summary"), dict):
+        normalized["summary"]["main_llm_coverage"] = _coverage(normalized)
     for item in normalized.get("top_radar", []) or []:
         if isinstance(item, dict) and item.get("matched_focus_topics") and not item.get("matched_focus_topic_labels"):
             item["matched_focus_topic_labels"] = [
@@ -279,11 +281,19 @@ def _apply_llm_payload(item: dict[str, Any], payload: dict[str, Any]) -> None:
 
 def _apply_rule_fallback(item: dict[str, Any]) -> None:
     if not _is_chinese_enough(str(item.get("summary") or "")):
-        topics = "、".join(topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])[:3]) or "相关技术"
-        item["summary"] = f"该项目围绕 {topics} 方向出现趋势信号，建议结合 README 复核成熟度。"
+        topics = "、".join(topic_label(str(topic)) for topic in item.get("matched_focus_topics", [])[:3])
+        if topics:
+            item["summary"] = f"该项目围绕 {topics} 方向出现趋势信号，建议结合 README 复核成熟度。"
+        else:
+            item["summary"] = "该项目来自趋势榜单或主题搜索召回，但主题归因不足；建议先低优先级观察，并复核 README 与近期更新记录。"
     if not _is_chinese_enough(str(item.get("reason_to_watch") or "")):
-        source = "多源命中" if len(item.get("source_hits", [])) > 1 else "近期更新"
-        item["reason_to_watch"] = f"入选原因：{source}，且主题相关度达到报告展示阈值。"
+        source_hits = item.get("source_hits", [])
+        if len(source_hits) > 1:
+            item["reason_to_watch"] = "入选原因：多源命中，且主题相关度达到报告展示阈值。"
+        elif "ossinsight" in source_hits:
+            item["reason_to_watch"] = "入选原因：来自 OSSInsight 趋势榜单，但主题证据仍需人工复核。"
+        else:
+            item["reason_to_watch"] = "入选原因：来自主题搜索召回，但主题证据不足，建议先复核项目定位。"
     if not _is_chinese_enough(str(item.get("engineering_takeaway") or "")):
         item["engineering_takeaway"] = "工程启发：可评估其在企业私有化、知识库、Agent 工作流或研发效率场景中的复用价值。"
     risks = item.get("risks")
@@ -308,5 +318,16 @@ def _coverage(report: dict[str, Any]) -> dict[str, int]:
         for section in ("breakout", "deep_research", "long_term")
         for item in report.get("sections", {}).get(section, [])
     ]
-    analyzed = sum(1 for item in items if item.get("analysis_source") in {"LLM 校准", "LLM 报告补齐"})
+    analyzed = sum(1 for item in items if _has_chinese_llm_analysis(item))
     return {"analyzed": analyzed, "total": len(items)}
+
+
+def _has_chinese_llm_analysis(item: dict[str, Any]) -> bool:
+    if item.get("analysis_source") not in {"LLM 校准", "LLM 报告补齐"}:
+        return False
+    fields = [
+        str(item.get("summary") or ""),
+        str(item.get("reason_to_watch") or ""),
+        str(item.get("engineering_takeaway") or ""),
+    ]
+    return all(_is_chinese_enough(field) for field in fields)

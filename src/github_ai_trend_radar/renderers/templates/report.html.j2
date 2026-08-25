@@ -124,7 +124,7 @@ a { color: inherit; text-decoration: none; border-bottom: 1px solid currentColor
     {% endif %}
     <div class="meta">
       数据快照：{{ report.snapshot_kind }}{% if report.model %} · 模型：{{ report.model }}{% endif %}
-      · 主区 LLM 分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
+      · 主区中文分析覆盖：{{ report.summary.main_llm_coverage.analyzed }}/{{ report.summary.main_llm_coverage.total }}
       · LLM 报告补齐：{% if report.report_enrichment.enabled %}已启用{% else %}未启用{% endif %}
     </div>
   </section>

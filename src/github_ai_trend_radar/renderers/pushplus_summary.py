@@ -57,7 +57,7 @@ def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, ful
         f"候选数：{_e(stats.get('total_candidates', ''))} · "
         f"多源命中：{_e(summary.get('multi_source_candidates', ''))} · "
         f"本期待复核 Watchlist：{_e(watchlist_text)} · "
-        f"主区 LLM 覆盖：{_e(coverage.get('analyzed', 0))}/{_e(coverage.get('total', 0))} · "
+        f"主区中文分析覆盖：{_e(coverage.get('analyzed', 0))}/{_e(coverage.get('total', 0))} · "
         f"运行状态：{_e(status_label)} · "
         f"生成时间：{_e(report.get('generated_at', ''))}</p>"
     )

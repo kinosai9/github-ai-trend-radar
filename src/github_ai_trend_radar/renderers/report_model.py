@@ -370,6 +370,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     topic_labels = [topic_label(str(topic)) for topic in topics]
     source_hits = _safe_list(candidate.get("source_hits"))
     llm_is_noise = llm_analysis.get("llm_is_noise") is True
+    has_chinese_llm_card = _has_chinese_llm_card_fields(llm_analysis)
 
     return _strip_empty(
         {
@@ -412,7 +413,7 @@ def extract_project_summary(candidate: dict[str, Any]) -> dict[str, Any]:
                 llm_analysis.get("enterprise_fit"),
                 _fallback_takeaway(topic_labels),
             ),
-            "analysis_source": "LLM 校准" if candidate.get("llm_status") == "ok" else "规则评分",
+            "analysis_source": "LLM 校准" if candidate.get("llm_status") == "ok" and has_chinese_llm_card else "规则评分",
             "core_idea": _safe_chinese_text(llm_analysis.get("core_idea")),
             "technical_value": _safe_chinese_text(llm_analysis.get("technical_value")),
             "why_it_matters": _safe_chinese_text(llm_analysis.get("why_it_matters")),
@@ -466,15 +467,23 @@ def _build_summary(candidate: dict[str, Any], llm_analysis: dict[str, Any]) -> s
     if description and _is_chinese_enough(description):
         return f"项目描述：{description}"
     topic_labels = [topic_label(str(topic)) for topic in _safe_list(candidate.get("matched_focus_topics"))]
-    topics = "、".join(topic_labels[:3]) or "当前命中主题"
+    topics = _topic_phrase(topic_labels)
     if description:
-        return f"该项目围绕 {topics} 方向出现趋势信号；原始描述偏英文或信息有限，建议结合 README 复核真实能力和成熟度。"
-    return f"该项目围绕 {topics} 方向，近期在 GitHub 出现趋势信号，建议结合 README 判断真实成熟度。"
+        if topics:
+            return f"该项目围绕 {topics} 方向出现趋势信号；原始描述偏英文或信息有限，建议结合 README 复核真实能力和成熟度。"
+        return "该项目来自趋势榜单或主题搜索召回，但主题归因不足；建议先低优先级观察，并复核 README、topics 和近期更新记录。"
+    if topics:
+        return f"该项目围绕 {topics} 方向，近期在 GitHub 出现趋势信号，建议结合 README 判断真实成熟度。"
+    return "该项目来自趋势榜单或主题搜索召回，但缺少足够主题描述；建议先作为弱信号保留，不宜直接进入深研。"
 
 
 def _fallback_reason(candidate: dict[str, Any], source_hits: list[Any]) -> str:
     source_text = "多源命中" if len(source_hits) > 1 else "近期更新"
     bucket = _safe_text(candidate.get("radar_bucket"))
+    if not _safe_list(candidate.get("matched_focus_topics")):
+        if "ossinsight" in source_hits:
+            return "入选原因：来自 OSSInsight 趋势榜单，但主题归因不足，适合先低优先级观察。"
+        return "入选原因：来自主题搜索召回，但主题证据不足，建议先复核项目定位。"
     if bucket == "breakout":
         return f"入选原因：{source_text}，且趋势分较高，可能代表近期升温方向。"
     if bucket == "valuable_mature":
@@ -483,8 +492,14 @@ def _fallback_reason(candidate: dict[str, Any], source_hits: list[Any]) -> str:
 
 
 def _fallback_takeaway(topics: list[Any]) -> str:
-    topic_text = "、".join(str(topic) for topic in topics[:3]) or "相关技术"
+    topic_text = _topic_phrase(topics)
+    if not topic_text:
+        return "工程启发：当前主题归因不足，建议先确认项目真实能力边界，再判断是否进入企业 PoC 或长期观察。"
     return f"工程启发：可从 {topic_text} 方向评估其在企业知识库、Agent 工作流或本地部署中的复用价值。"
+
+
+def _topic_phrase(topics: list[Any]) -> str:
+    return "、".join(str(topic) for topic in topics[:3] if str(topic).strip())
 
 
 def _is_chinese_enough(text: str, *, min_cjk_chars: int = 6, min_cjk_ratio: float = 0.18) -> bool:
@@ -651,11 +666,16 @@ def _noise_reasons_for_summary(item: dict[str, Any]) -> list[str]:
         grouped.append("资料集合 / 教程 / prompt 类内容")
     if any(token in joined for token in ("wrapper", "clone", "boilerplate")):
         grouped.append("封装 / 克隆 / 模板类项目")
-    if any(token in joined for token in ("topic", "mismatch", "weak")):
+    if any(token in joined for token in ("watermark", "c2pa", "image collection", "wallpaper")):
+        grouped.append("非目标方向的内容处理工具")
+    if any(token in joined for token in ("penetration", "reverse-engineering", "cybersecurity", "skill pack")):
+        grouped.append("安全技能包或垂直工具，非雷达主线")
+    if any(token in joined for token in ("does not provide", "not a", "topic", "mismatch", "weak", "irrelevant")):
         grouped.append("主题相关性不足")
     if any(token in joined for token in ("archived", "fork")):
         grouped.append("归档或 fork 项目")
-    return grouped or [_safe_text(reason) for reason in raw_reasons if _safe_text(reason)]
+    chinese_reasons = [_safe_text(reason) for reason in raw_reasons if _is_chinese_enough(_safe_text(reason))]
+    return grouped or chinese_reasons or ["主题相关性不足或不适合作为本期雷达主信号"]
 
 
 def _build_observations(
@@ -699,7 +719,7 @@ def _data_sources(snapshot: dict[str, Any], uses_llm: bool) -> list[dict[str, st
 
 def _main_llm_coverage(sections: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
     items = [item for key in ("breakout", "deep_research", "long_term") for item in sections.get(key, [])]
-    analyzed = sum(1 for item in items if item.get("analysis_source") == "LLM 校准")
+    analyzed = sum(1 for item in items if _has_chinese_llm_analysis(item))
     return {"analyzed": analyzed, "total": len(items)}
 
 
@@ -711,3 +731,21 @@ def _llm_status_label(uses_llm_snapshot: bool, coverage: dict[str, int]) -> str:
     if total and analyzed < total:
         return "规则评分 + LLM 局部校准"
     return "规则评分 + LLM 校准"
+
+
+def _has_chinese_llm_analysis(item: dict[str, Any]) -> bool:
+    if item.get("analysis_source") not in {"LLM 校准", "LLM 报告补齐"}:
+        return False
+    fields = [
+        _safe_text(item.get("summary")),
+        _safe_text(item.get("reason_to_watch")),
+        _safe_text(item.get("engineering_takeaway")),
+    ]
+    return all(_is_chinese_enough(field) for field in fields)
+
+
+def _has_chinese_llm_card_fields(llm_analysis: dict[str, Any]) -> bool:
+    summary = _first_chinese_text(llm_analysis.get("summary_for_report"), llm_analysis.get("core_idea"))
+    reason = _first_chinese_text(llm_analysis.get("why_it_matters"), llm_analysis.get("technical_value"))
+    takeaway = _safe_chinese_text(llm_analysis.get("enterprise_fit"))
+    return bool(summary and reason and takeaway)

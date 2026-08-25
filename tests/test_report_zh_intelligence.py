@@ -174,7 +174,7 @@ def test_llm_coverage_stat_exists():
     report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
     html = render_html(report)
 
-    assert "主区 LLM 分析覆盖" in html
+    assert "主区中文分析覆盖" in html
     assert report["summary"]["main_llm_coverage"]["total"] == 1
 
 
@@ -246,6 +246,62 @@ def test_old_report_enriched_cache_is_language_normalized():
         "Physical AI / 物理世界智能",
     ]
     assert item["risks"] == []
+
+
+def test_llm_coverage_counts_only_chinese_visible_analysis():
+    english_llm = {
+        **_candidate("owner/english", "breakout", "read"),
+        "llm_status": "ok",
+        "llm_analysis": {
+            "summary_for_report": "A coding agent framework.",
+            "why_it_matters": "It improves repository automation.",
+            "enterprise_fit": "Useful after validation.",
+        },
+    }
+    chinese_llm = {
+        **_candidate("owner/chinese", "breakout", "read", score=0.6),
+        "llm_status": "ok",
+        "llm_analysis": {
+            "summary_for_report": "这是一个面向代码库自动化的智能体工具。",
+            "why_it_matters": "它可能降低研发上下文整理成本，适合进一步复核。",
+            "enterprise_fit": "可先在非敏感仓库中验证权限边界和私有化部署能力。",
+        },
+    }
+
+    report = build_report_model({"period": "daily", "candidates": [english_llm, chinese_llm]}, load_report_config("missing-config-dir"))
+
+    assert report["summary"]["main_llm_coverage"] == {"analyzed": 1, "total": 2}
+
+
+def test_missing_topics_use_natural_chinese_fallback():
+    candidate = {
+        **_candidate("owner/no-topic", "breakout", "read"),
+        "matched_focus_topics": [],
+        "description": "A fast framework for data automation.",
+    }
+
+    report = build_report_model({"period": "daily", "candidates": [candidate]}, load_report_config("missing-config-dir"))
+    html = render_html(report)
+
+    assert "当前命中主题" not in html
+    assert "主题归因不足" in html
+
+
+def test_english_llm_noise_reason_is_not_rendered():
+    candidate = {
+        **_candidate("owner/watermark", "noise", "ignore", True),
+        "description": "Remove watermarks from AI generated content.",
+        "llm_analysis": {
+            "llm_is_noise": True,
+            "llm_noise_reason": "project is a watermark and c2pa removal utility; it does not provide ai agent infrastructure.",
+        },
+    }
+
+    report = build_report_model({"period": "daily", "candidates": [candidate]}, load_report_config("missing-config-dir"))
+    html = render_html(report)
+
+    assert "watermark and c2pa removal utility" not in html
+    assert "非目标方向的内容处理工具" in html
 
 
 def test_enrich_overview_without_key_keeps_statistical_notes_and_adds_editorial_fallback():
