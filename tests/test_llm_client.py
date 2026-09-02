@@ -1,11 +1,13 @@
-from github_ai_trend_radar.llm.client import LLMClient
+from github_ai_trend_radar.llm.client import FallbackLLMClient, LLMClient
 from github_ai_trend_radar.llm.config import LLMConfig
 from github_ai_trend_radar.llm.errors import (
     ERROR_AUTH_FAILED,
     ERROR_EMPTY_CONTENT,
     ERROR_PROVIDER_PARAMETER,
+    ERROR_QUOTA_EXCEEDED,
     ERROR_RATE_LIMITED,
 )
+from github_ai_trend_radar.llm.errors import LLMResult
 from github_ai_trend_radar.llm.providers.anthropic_compatible import (
     openai_to_anthropic_messages,
     parse_anthropic_content,
@@ -227,3 +229,53 @@ def test_http_error_mapping():
             [{"role": "user", "content": "hi"}]
         )
         assert result.error_type == expected
+
+
+def test_fallback_client_keeps_both_providers_when_timeout_overridden():
+    primary = LLMClient(LLMConfig(api_key="primary", timeout=60))
+    fallback = LLMClient(LLMConfig(api_key="fallback", timeout=45))
+
+    overridden = FallbackLLMClient(primary, fallback).with_timeout(90)
+
+    assert isinstance(overridden, FallbackLLMClient)
+    assert overridden.primary.config.timeout == 90
+    assert overridden.fallback.config.timeout == 90
+
+
+def test_fallback_client_switches_after_quota_exceeded(caplog):
+    class Primary:
+        available = True
+        model = "kimi"
+        config = LLMConfig(api_key="primary")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(False, "", None, "kimi_code", "kimi", error_type=ERROR_QUOTA_EXCEEDED, error_message="quota")
+
+    class Backup:
+        available = True
+        model = "deepseek"
+        config = LLMConfig(api_key="fallback")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(True, '{"ok":true}', None, "openai_compatible", "deepseek")
+
+    client = FallbackLLMClient(Primary(), Backup())
+    result = client.complete_json([{"role": "user", "content": "hi"}])
+
+    assert result.ok is True
+    assert client.model == "deepseek"
+    assert "LLM failover" in caplog.text
+
+
+def test_scoring_stage_reuses_report_fallback_when_dedicated_fallback_is_absent(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "kimi-key")
+    monkeypatch.setenv("REPORT_LLM_FALLBACK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("REPORT_LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    monkeypatch.delenv("SCORING_LLM_FALLBACK_API_KEY", raising=False)
+
+    client = LLMClient.for_stage("scoring")
+
+    assert isinstance(client, FallbackLLMClient)
+    assert client.primary.config.api_key == "kimi-key"
+    assert client.fallback.config.api_key == "deepseek-key"
+    assert client.fallback.model == "deepseek-v4-flash"

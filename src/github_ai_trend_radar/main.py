@@ -439,10 +439,12 @@ def score(args: argparse.Namespace) -> int:
         except AttributeError:  # backwards-compatible test doubles
             llm_client = LLMClient(LLMConfig.from_env(stage="scoring"))
         if args.llm_timeout is not None:
-            client_config = getattr(llm_client, "config", None)
-            if client_config is None:
-                client_config = LLMConfig.from_env(stage="scoring")
-            llm_client = LLMClient(replace(client_config, timeout=args.llm_timeout))
+            with_timeout = getattr(llm_client, "with_timeout", None)
+            if callable(with_timeout):
+                llm_client = with_timeout(args.llm_timeout)
+            else:  # backwards-compatible test doubles
+                client_config = getattr(llm_client, "config", LLMConfig.from_env(stage="scoring"))
+                llm_client = LLMClient(replace(client_config, timeout=args.llm_timeout))
         client = llm_client
         if not client.available:
             console.print("[yellow]LLM_API_KEY is missing; writing LLM snapshot with rule-based fallback.[/yellow]")

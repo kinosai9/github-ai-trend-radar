@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-import time
+import logging
+import os
+from dataclasses import replace
 from typing import Any
 
 import requests
@@ -15,6 +17,9 @@ from github_ai_trend_radar.llm.providers.anthropic_compatible import AnthropicCo
 from github_ai_trend_radar.llm.providers.kimi_code import KimiCodeProvider
 from github_ai_trend_radar.llm.providers.moonshot import MoonshotProvider
 from github_ai_trend_radar.llm.providers.openai_compatible import OpenAICompatibleProvider
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -44,11 +49,15 @@ class LLMClient:
         ]
         return self.complete_json(messages, **kwargs)
 
+    def with_timeout(self, timeout: float) -> "LLMClient":
+        """Return an equivalent client with only its request timeout changed."""
+        return LLMClient(replace(self.config, timeout=timeout), session=self.session)
+
     @classmethod
     def for_stage(cls, stage: str, *, session: requests.Session | None = None) -> "LLMClient | FallbackLLMClient":
         primary = LLMConfig.from_env(stage=stage)
         fallback_prefix = f"{stage.upper()}_LLM_FALLBACK_"
-        env = __import__("os").environ
+        env = os.environ
         # A report fallback is a sensible shared emergency provider for the
         # short-form scoring stage too. A dedicated scoring fallback wins.
         if stage == "scoring" and not env.get(fallback_prefix + "API_KEY"):
@@ -100,17 +109,13 @@ class FallbackLLMClient:
 
     def complete_json(self, messages: list[dict], **kwargs) -> LLMResult:
         result = self.active.complete_json(messages, **kwargs)
-        if (not result.ok and result.error_type in {ERROR_QUOTA_EXCEEDED, ERROR_RATE_LIMITED, ERROR_AUTH_FAILED}
-                and self.active is self.primary and self.fallback.available):
-            self.active = self.fallback
+        if self._should_fail_over(result):
             return self.active.complete_json(messages, **kwargs)
         return result
 
     def complete_text(self, messages: list[dict], **kwargs) -> LLMResult:
         result = self.active.complete_text(messages, **kwargs)
-        if (not result.ok and result.error_type in {ERROR_QUOTA_EXCEEDED, ERROR_RATE_LIMITED, ERROR_AUTH_FAILED}
-                and self.active is self.primary and self.fallback.available):
-            self.active = self.fallback
+        if self._should_fail_over(result):
             return self.active.complete_text(messages, **kwargs)
         return result
 
@@ -118,3 +123,32 @@ class FallbackLLMClient:
         messages = [{"role": "system", "content": system_prompt},
                     {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}]
         return self.complete_json(messages, **kwargs)
+
+    def with_timeout(self, timeout: float) -> "FallbackLLMClient":
+        """Keep both provider branches when a CLI timeout overrides defaults."""
+        client = FallbackLLMClient(
+            self.primary.with_timeout(timeout),
+            self.fallback.with_timeout(timeout),
+        )
+        if self.active is self.fallback:
+            client.active = client.fallback
+        return client
+
+    def _should_fail_over(self, result: LLMResult) -> bool:
+        if (
+            result.ok
+            or result.error_type not in {ERROR_QUOTA_EXCEEDED, ERROR_RATE_LIMITED, ERROR_AUTH_FAILED}
+            or self.active is not self.primary
+            or not self.fallback.available
+        ):
+            return False
+        LOGGER.warning(
+            "LLM failover: provider=%s model=%s error_type=%s -> provider=%s model=%s",
+            self.primary.config.provider,
+            self.primary.model,
+            result.error_type,
+            self.fallback.config.provider,
+            self.fallback.model,
+        )
+        self.active = self.fallback
+        return True

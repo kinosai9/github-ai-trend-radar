@@ -89,6 +89,10 @@ jobs:
       REPORT_LLM_FALLBACK_API_KEY: ${{ secrets.REPORT_LLM_FALLBACK_API_KEY }}
       REPORT_LLM_FALLBACK_API_BASE: ${{ vars.REPORT_LLM_FALLBACK_API_BASE }}
       REPORT_LLM_FALLBACK_MODEL: ${{ vars.REPORT_LLM_FALLBACK_MODEL }}
+      REPORT_LLM_FALLBACK_THINKING: ${{ vars.REPORT_LLM_FALLBACK_THINKING }}
+      REPORT_LLM_FALLBACK_TEMPERATURE: ${{ vars.REPORT_LLM_FALLBACK_TEMPERATURE }}
+      REPORT_LLM_FALLBACK_MAX_TOKENS: ${{ vars.REPORT_LLM_FALLBACK_MAX_TOKENS }}
+      REPORT_LLM_FALLBACK_TIMEOUT: ${{ vars.REPORT_LLM_FALLBACK_TIMEOUT }}
       TOPICS_JSON: ${{ vars.TOPICS_JSON }}
       SITE_BASE_URL: ${{ vars.SITE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
       SITE_REPO_URL: ${{ vars.SITE_REPO_URL || format('https://github.com/{0}', github.repository) }}
