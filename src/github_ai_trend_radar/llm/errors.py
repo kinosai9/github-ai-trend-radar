@@ -9,6 +9,7 @@ from typing import Any
 ERROR_MISSING_API_KEY = "missing_api_key"
 ERROR_HTTP = "http_error"
 ERROR_RATE_LIMITED = "rate_limited"
+ERROR_QUOTA_EXCEEDED = "quota_exceeded"
 ERROR_AUTH_FAILED = "auth_failed"
 ERROR_PROVIDER_PARAMETER = "provider_parameter_error"
 ERROR_EMPTY_CONTENT = "empty_content"

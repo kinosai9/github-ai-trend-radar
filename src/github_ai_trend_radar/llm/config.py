@@ -35,14 +35,15 @@ class LLMConfig:
         return parsed.netloc or self.api_base
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
-        api_key = _env("LLM_API_KEY", _env("OPENAI_API_KEY", ""))
-        api_base = _env("LLM_API_BASE", _env("OPENAI_API_BASE", DEFAULT_API_BASE))
-        model = _env("LLM_MODEL", _env("MODEL_NAME", DEFAULT_MODEL))
-        provider = _env("LLM_PROVIDER", "openai_compatible")
-        api_style = _env("LLM_API_STYLE", "openai_compatible")
-        thinking_raw = os.getenv("LLM_THINKING")
-        temperature_raw = os.getenv("LLM_TEMPERATURE")
+    def from_env(cls, stage: str | None = None) -> "LLMConfig":
+        prefix = f"{stage.upper()}_LLM_" if stage else "LLM_"
+        api_key = _stage_env(prefix, "API_KEY", _env("LLM_API_KEY", _env("OPENAI_API_KEY", "")))
+        api_base = _stage_env(prefix, "API_BASE", _env("LLM_API_BASE", _env("OPENAI_API_BASE", DEFAULT_API_BASE)))
+        model = _stage_env(prefix, "MODEL", _env("LLM_MODEL", _env("MODEL_NAME", DEFAULT_MODEL)))
+        provider = _stage_env(prefix, "PROVIDER", _env("LLM_PROVIDER", "openai_compatible"))
+        api_style = _stage_env(prefix, "API_STYLE", _env("LLM_API_STYLE", "openai_compatible"))
+        thinking_raw = _stage_env_optional(prefix, "THINKING") or os.getenv("LLM_THINKING")
+        temperature_raw = _stage_env_optional(prefix, "TEMPERATURE") or os.getenv("LLM_TEMPERATURE")
         thinking = _normalize_thinking(thinking_raw or "disabled")
         config = cls(
             provider=provider,
@@ -51,8 +52,8 @@ class LLMConfig:
             api_base=api_base,
             model=model,
             temperature=_float(temperature_raw, 0.6),
-            max_tokens=_int(os.getenv("LLM_MAX_TOKENS"), 2048),
-            timeout=_float(os.getenv("LLM_TIMEOUT"), 60.0),
+            max_tokens=_int(_stage_env_optional(prefix, "MAX_TOKENS") or os.getenv("LLM_MAX_TOKENS"), 2048),
+            timeout=_float(_stage_env_optional(prefix, "TIMEOUT") or os.getenv("LLM_TIMEOUT"), 60.0),
             thinking=thinking,
             temperature_explicit=temperature_raw is not None and temperature_raw.strip() != "",
             thinking_explicit=thinking_raw is not None and thinking_raw.strip() != "",
@@ -124,6 +125,15 @@ class LLMConfig:
 def _env(name: str, default: str) -> str:
     value = os.getenv(name)
     return default if value is None or value.strip() == "" else value.strip()
+
+
+def _stage_env(prefix: str, suffix: str, default: str) -> str:
+    return _env(f"{prefix}{suffix}", default)
+
+
+def _stage_env_optional(prefix: str, suffix: str) -> str | None:
+    value = os.getenv(f"{prefix}{suffix}")
+    return value if value is not None and value.strip() != "" else None
 
 
 def _research_env(suffix: str) -> str | None:

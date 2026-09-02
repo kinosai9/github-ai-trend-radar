@@ -434,10 +434,16 @@ def score(args: argparse.Namespace) -> int:
     )
 
     if args.use_llm:
-        llm_config = LLMConfig.from_env()
+        try:
+            llm_client = LLMClient.for_stage("scoring")
+        except AttributeError:  # backwards-compatible test doubles
+            llm_client = LLMClient(LLMConfig.from_env(stage="scoring"))
         if args.llm_timeout is not None:
-            llm_config = replace(llm_config, timeout=args.llm_timeout)
-        client = LLMClient(llm_config)
+            client_config = getattr(llm_client, "config", None)
+            if client_config is None:
+                client_config = LLMConfig.from_env(stage="scoring")
+            llm_client = LLMClient(replace(client_config, timeout=args.llm_timeout))
+        client = llm_client
         if not client.available:
             console.print("[yellow]LLM_API_KEY is missing; writing LLM snapshot with rule-based fallback.[/yellow]")
         llm_payload = enrich_with_llm(
@@ -537,9 +543,17 @@ def render(args: argparse.Namespace) -> int:
 
     report_enrich_top_n = int(getattr(args, "report_enrich_top_n", 10) or 10)
     if getattr(args, "enrich_report", False) and not resolved.is_report_model:
-        report = enrich_report_model(report, LLMClient(LLMConfig.from_env()), max_items=report_enrich_top_n)
+        try:
+            report_client = LLMClient.for_stage("report")
+        except AttributeError:  # backwards-compatible test doubles
+            report_client = LLMClient(LLMConfig.from_env(stage="report"))
+        report = enrich_report_model(report, report_client, max_items=report_enrich_top_n)
     if getattr(args, "enrich_overview", False):
-        report = enrich_editorial_judgement(report, LLMClient(LLMConfig.from_env()))
+        try:
+            overview_client = LLMClient.for_stage("report")
+        except AttributeError:  # backwards-compatible test doubles
+            overview_client = LLMClient(LLMConfig.from_env(stage="report"))
+        report = enrich_editorial_judgement(report, overview_client)
     report = attach_issue_links(report)
 
     output_format = getattr(args, "format", "all")

@@ -147,6 +147,25 @@ LLM_API_KEY=
 
 不同 provider 的 OpenAI-compatible 并不完全等价。`temperature`、`thinking`、`reasoning_content`、JSON mode 都可能需要 provider profile；项目会通过 provider adapter 隔离这些差异。
 
+#### Actions 中的分阶段 LLM 与兜底
+
+定时任务将 LLM 工作拆为两类：项目级评分使用 `SCORING_LLM_*`，报告卡片补齐和本期总评使用 `REPORT_LLM_*`。未设置阶段变量时，自动回退到通用 `LLM_*`，因此原有配置仍可继续使用。
+
+建议让报告阶段使用更稳定的 API，并为 Kimi Coding 配置备用模型。Kimi 返回额度耗尽的 403 后会被识别为 `quota_exceeded`，当前运行立即停止继续消耗 Kimi，并切换到备用 provider；不会把同一个请求反复重试。示例：
+
+```bash
+REPORT_LLM_PROVIDER=kimi_code
+REPORT_LLM_API_STYLE=anthropic_compatible
+REPORT_LLM_API_BASE=https://api.kimi.com/coding/
+REPORT_LLM_MODEL=kimi-for-coding
+REPORT_LLM_FALLBACK_PROVIDER=openai_compatible
+REPORT_LLM_FALLBACK_API_BASE=https://api.deepseek.com/v1
+REPORT_LLM_FALLBACK_MODEL=deepseek-chat
+REPORT_LLM_FALLBACK_API_KEY=
+```
+
+把 `REPORT_LLM_FALLBACK_API_KEY` 放在 GitHub Secret，不要写入 Variables 或仓库文件。项目级评分也可以使用 `SCORING_LLM_*` 指向成本更低的模型；若未设置 `SCORING_LLM_FALLBACK_*`，评分阶段会复用 `REPORT_LLM_FALLBACK_*` 作为应急备用。这样 Kimi 仍会优先消耗，但周报/月报不会因为 Kimi 的集中时段额度而整体退化为规则模板；备用模型未配置时，现有规则 fallback 仍然生效。
+
 ## 报告生成
 
 评分完成后可以把 `scored` / `llm-scored` snapshot，或已缓存的 `report-enriched` 报告模型渲染为 Markdown 和墨水风单文件 HTML：
