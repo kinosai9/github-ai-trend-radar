@@ -279,3 +279,19 @@ def test_scoring_stage_reuses_report_fallback_when_dedicated_fallback_is_absent(
     assert client.primary.config.api_key == "kimi-key"
     assert client.fallback.config.api_key == "deepseek-key"
     assert client.fallback.model == "deepseek-v4-flash"
+
+
+def test_fallback_optional_empty_github_variables_use_defaults(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "kimi-key")
+    monkeypatch.setenv("REPORT_LLM_FALLBACK_API_KEY", "deepseek-key")
+    for suffix in ("API_STYLE", "TEMPERATURE", "MAX_TOKENS", "TIMEOUT", "THINKING"):
+        monkeypatch.setenv(f"REPORT_LLM_FALLBACK_{suffix}", "")
+
+    client = LLMClient.for_stage("report")
+
+    assert isinstance(client, FallbackLLMClient)
+    assert client.fallback.config.api_style == "openai_compatible"
+    assert client.fallback.config.temperature == 0.6
+    assert client.fallback.config.max_tokens == 2048
+    assert client.fallback.config.timeout == 60.0
+    assert client.fallback.config.thinking == "disabled"

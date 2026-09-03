@@ -66,15 +66,15 @@ class LLMClient:
         if not fallback_key:
             return cls(primary, session=session)
         fallback = LLMConfig(
-            provider=env.get(fallback_prefix + "PROVIDER", "openai_compatible"),
-            api_style=env.get(fallback_prefix + "API_STYLE", "openai_compatible"),
+            provider=_env_or_default(env, fallback_prefix + "PROVIDER", "openai_compatible"),
+            api_style=_env_or_default(env, fallback_prefix + "API_STYLE", "openai_compatible"),
             api_key=fallback_key,
-            api_base=env.get(fallback_prefix + "API_BASE", "https://api.deepseek.com/v1"),
-            model=env.get(fallback_prefix + "MODEL", "deepseek-chat"),
-            temperature=float(env.get(fallback_prefix + "TEMPERATURE", "0.6")),
-            max_tokens=int(env.get(fallback_prefix + "MAX_TOKENS", "2048")),
-            timeout=float(env.get(fallback_prefix + "TIMEOUT", "60")),
-            thinking=env.get(fallback_prefix + "THINKING", "disabled"),
+            api_base=_env_or_default(env, fallback_prefix + "API_BASE", "https://api.deepseek.com/v1"),
+            model=_env_or_default(env, fallback_prefix + "MODEL", "deepseek-chat"),
+            temperature=_float_env(env, fallback_prefix + "TEMPERATURE", 0.6),
+            max_tokens=_int_env(env, fallback_prefix + "MAX_TOKENS", 2048),
+            timeout=_float_env(env, fallback_prefix + "TIMEOUT", 60.0),
+            thinking=_env_or_default(env, fallback_prefix + "THINKING", "disabled"),
         ).with_provider_defaults()
         return FallbackLLMClient(cls(primary, session=session), cls(fallback, session=session))
 
@@ -86,6 +86,25 @@ class LLMClient:
         if self.config.api_style == "anthropic_compatible":
             return AnthropicCompatibleProvider(self.config, session=self.session)
         return OpenAICompatibleProvider(self.config, session=self.session)
+
+
+def _env_or_default(env: dict[str, str], key: str, default: str) -> str:
+    value = env.get(key, "").strip()
+    return value or default
+
+
+def _float_env(env: dict[str, str], key: str, default: float) -> float:
+    try:
+        return float(_env_or_default(env, key, str(default)))
+    except ValueError:
+        return default
+
+
+def _int_env(env: dict[str, str], key: str, default: int) -> int:
+    try:
+        return int(_env_or_default(env, key, str(default)))
+    except ValueError:
+        return default
 
 
 class FallbackLLMClient:
