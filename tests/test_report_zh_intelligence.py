@@ -406,14 +406,53 @@ def test_report_level_llm_summary_failure_falls_back():
         available = True
         model = "fake"
 
+        last_call_diagnostics = {
+            "initial_provider": "kimi_code",
+            "initial_model": "kimi-for-coding",
+            "provider": "kimi_code",
+            "model": "kimi-for-coding",
+            "fallback_attempted": False,
+            "error_type": "empty_content",
+            "error_message": "Model returned empty content",
+        }
+
         def complete_json(self, messages):
-            return type("R", (), {"ok": False, "content": ""})()
+            return type("R", (), {"ok": False, "content": "", "provider": "kimi_code", "model": "kimi-for-coding", "error_type": "empty_content", "error_message": "Model returned empty content", "finish_reason": "end_turn"})()
 
     report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
     enriched = enrich_report_overview(report, Client())
 
     assert enriched["overview_enrichment"]["failed"] is True
     assert enriched["overview_enrichment"]["fallback"] is True
+    assert enriched["overview_enrichment"]["diagnostic"]["error_type"] == "empty_content"
+    assert enriched["overview_enrichment"]["diagnostic"]["provider"] == "kimi_code"
+
+
+def test_report_enrichment_failure_records_sanitized_attempt_diagnostic():
+    class Client:
+        available = True
+        model = "kimi-for-coding"
+        last_call_diagnostics = {
+            "initial_provider": "kimi_code",
+            "initial_model": "kimi-for-coding",
+            "provider": "kimi_code",
+            "model": "kimi-for-coding",
+            "fallback_attempted": False,
+            "error_type": "auth_failed",
+            "error_message": "Bearer example-token",
+        }
+
+        def complete_json(self, messages):
+            return type("R", (), {"ok": False, "content": "", "provider": "kimi_code", "model": "kimi-for-coding", "error_type": "auth_failed", "error_message": "Bearer example-token", "finish_reason": None})()
+
+    report = build_report_model({"period": "daily", "candidates": [_candidate("owner/repo", "breakout", "read")]}, load_report_config("missing-config-dir"))
+    enriched = enrich_report_model(report, Client(), max_items=1)
+
+    attempt = enriched["report_enrichment"]["attempts"][0]
+    assert attempt["repo_full_name"] == "owner/repo"
+    assert attempt["status"] == "failed"
+    assert attempt["error_type"] == "auth_failed"
+    assert attempt["error_message"] == "Bearer ***"
 
 
 def test_markdown_uses_chinese_intelligence_sections():

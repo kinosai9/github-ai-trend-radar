@@ -7,6 +7,13 @@ def test_run_summary_contains_quality_gate_editorial_and_timing(tmp_path):
     report = {
         "stats": {"quality_gate": {"pass": 1, "warn": 2, "block": 3}},
         "overview_enrichment": {"enabled": True, "ok": True},
+        "report_enrichment": {
+            "enabled": True,
+            "candidate_count": 1,
+            "ok_count": 0,
+            "failed_count": 1,
+            "attempts": [{"repo_full_name": "owner/repo", "error_type": "empty_content"}],
+        },
         "llm": {"candidate_count": 5},
         "data_sources": [{"name": "OSSInsight"}],
         "watchlist_queue": {"count": 2, "items": [{"repo": "owner/repo"}], "file": "data/watchlist_queue/x.json"},
@@ -19,4 +26,6 @@ def test_run_summary_contains_quality_gate_editorial_and_timing(tmp_path):
     assert payload["watchlist"]["queue_count"] == 2
     assert payload["watchlist"]["queue_file"] == "data/watchlist_queue/x.json"
     assert payload["llm"]["report_editorial"]["status"] == "ok"
+    assert payload["llm"]["report_card_enrichment"]["failed_count"] == 1
+    assert payload["llm"]["report_card_enrichment"]["attempts"][0]["error_type"] == "empty_content"
     assert "render" in payload["timing_seconds"]

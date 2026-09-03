@@ -25,6 +25,7 @@ def write_run_summary(
     report = report or {}
     stats = report.get("stats", {}) if isinstance(report.get("stats"), dict) else {}
     overview = report.get("overview_enrichment", {}) if isinstance(report.get("overview_enrichment"), dict) else {}
+    report_enrichment = report.get("report_enrichment", {}) if isinstance(report.get("report_enrichment"), dict) else {}
     watchlist_queue = report.get("watchlist_queue", {}) if isinstance(report.get("watchlist_queue"), dict) else {}
     payload = {
         "period": period,
@@ -34,9 +35,17 @@ def write_run_summary(
         "sources": report.get("data_sources", []),
         "llm": {
             "project_analysis": report.get("llm", {}),
+            "report_card_enrichment": {
+                "enabled": bool(report_enrichment.get("enabled")),
+                "candidate_count": int(report_enrichment.get("candidate_count", 0) or 0),
+                "ok_count": int(report_enrichment.get("ok_count", 0) or 0),
+                "failed_count": int(report_enrichment.get("failed_count", 0) or 0),
+                "attempts": report_enrichment.get("attempts", []),
+            },
             "report_editorial": {
                 "enabled": bool(overview.get("enabled")),
                 "status": "ok" if overview.get("ok") else "failed" if overview.get("failed") else "fallback" if overview.get("fallback") else "skipped",
+                "diagnostic": overview.get("diagnostic", {}),
             },
         },
         "quality_gate": stats.get("quality_gate", {"pass": 0, "warn": 0, "block": 0}),

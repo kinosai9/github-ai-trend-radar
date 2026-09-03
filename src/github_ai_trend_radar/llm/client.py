@@ -27,6 +27,7 @@ class LLMClient:
         self.config = config or LLMConfig.from_env()
         self.session = session
         self.provider = self._make_provider()
+        self.last_call_diagnostics: dict[str, Any] = {}
 
     @property
     def available(self) -> bool:
@@ -37,10 +38,14 @@ class LLMClient:
         return self.config.model
 
     def complete_text(self, messages: list[dict], **kwargs) -> LLMResult:
-        return self.provider.complete(messages, json_mode=False, **kwargs)
+        result = self.provider.complete(messages, json_mode=False, **kwargs)
+        self.last_call_diagnostics = _call_diagnostics(result, self.config.provider, self.model)
+        return result
 
     def complete_json(self, messages: list[dict], **kwargs) -> LLMResult:
-        return self.provider.complete(messages, json_mode=True, **kwargs)
+        result = self.provider.complete(messages, json_mode=True, **kwargs)
+        self.last_call_diagnostics = _call_diagnostics(result, self.config.provider, self.model)
+        return result
 
     def chat_json(self, *, system_prompt: str, user_payload: dict[str, Any], **kwargs: Any) -> LLMResult:
         messages = [
@@ -113,6 +118,7 @@ class FallbackLLMClient:
     def __init__(self, primary: LLMClient, fallback: LLMClient) -> None:
         self.primary, self.fallback = primary, fallback
         self.active = primary
+        self.last_call_diagnostics: dict[str, Any] = {}
 
     @property
     def available(self) -> bool:
@@ -127,15 +133,25 @@ class FallbackLLMClient:
         return self.active.config
 
     def complete_json(self, messages: list[dict], **kwargs) -> LLMResult:
+        initial = self.active
         result = self.active.complete_json(messages, **kwargs)
-        if self._should_fail_over(result):
-            return self.active.complete_json(messages, **kwargs)
+        fallback_attempted = self._should_fail_over(result)
+        if fallback_attempted:
+            result = self.active.complete_json(messages, **kwargs)
+        self.last_call_diagnostics = _call_diagnostics(
+            result, initial.config.provider, initial.model, fallback_attempted=fallback_attempted
+        )
         return result
 
     def complete_text(self, messages: list[dict], **kwargs) -> LLMResult:
+        initial = self.active
         result = self.active.complete_text(messages, **kwargs)
-        if self._should_fail_over(result):
-            return self.active.complete_text(messages, **kwargs)
+        fallback_attempted = self._should_fail_over(result)
+        if fallback_attempted:
+            result = self.active.complete_text(messages, **kwargs)
+        self.last_call_diagnostics = _call_diagnostics(
+            result, initial.config.provider, initial.model, fallback_attempted=fallback_attempted
+        )
         return result
 
     def chat_json(self, *, system_prompt: str, user_payload: dict[str, Any], **kwargs: Any) -> LLMResult:
@@ -171,3 +187,25 @@ class FallbackLLMClient:
         )
         self.active = self.fallback
         return True
+
+
+def _call_diagnostics(
+    result: LLMResult,
+    initial_provider: str,
+    initial_model: str,
+    *,
+    fallback_attempted: bool = False,
+) -> dict[str, Any]:
+    """Capture compact routing facts without retaining prompts or response bodies."""
+
+    return {
+        "initial_provider": initial_provider,
+        "initial_model": initial_model,
+        "provider": result.provider,
+        "model": result.model,
+        "fallback_attempted": fallback_attempted,
+        "ok": result.ok,
+        "error_type": result.error_type,
+        "error_message": result.error_message,
+        "finish_reason": result.finish_reason,
+    }

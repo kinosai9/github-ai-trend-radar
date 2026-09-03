@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from github_ai_trend_radar.llm.client import LLMClient
@@ -44,6 +45,7 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
         "failed_count": 0,
         "candidate_count": len(targets),
         "model": client.model if client.available else "",
+        "attempts": [],
     }
 
     if not client.available:
@@ -51,6 +53,7 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
             _apply_rule_fallback(item)
             item["report_enrichment_status"] = "fallback"
             meta["fallback_count"] += 1
+            meta["attempts"].append(_attempt_record(item, "fallback", client, error_type="missing_api_key"))
         _mark_unselected(enriched, targets)
         enriched["report_enrichment"] = meta
         enriched["summary"]["main_llm_coverage"] = _coverage(enriched)
@@ -59,6 +62,7 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
     for item in targets:
         if _has_chinese_llm_report_fields(item):
             item["report_enrichment_status"] = "skipped"
+            meta["attempts"].append(_attempt_record(item, "skipped", client))
             continue
         result = client.complete_json(
             [
@@ -71,6 +75,7 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
             item["report_enrichment_status"] = "failed"
             meta["failed_count"] += 1
             meta["fallback_count"] += 1
+            meta["attempts"].append(_attempt_record(item, "failed", client, result=result))
             continue
         payload, error = parse_json_or_error(result.content)
         if error or not isinstance(payload, dict):
@@ -78,10 +83,12 @@ def enrich_report_model(report: dict[str, Any], client: LLMClient, *, max_items:
             item["report_enrichment_status"] = "failed"
             meta["failed_count"] += 1
             meta["fallback_count"] += 1
+            meta["attempts"].append(_attempt_record(item, "parse_failed", client, result=result, parse_error=error))
             continue
         _apply_llm_payload(item, payload)
         item["report_enrichment_status"] = "ok"
         meta["ok_count"] += 1
+        meta["attempts"].append(_attempt_record(item, "ok", client, result=result))
 
     _mark_unselected(enriched, targets)
     enriched["report_enrichment"] = meta
@@ -137,11 +144,13 @@ def enrich_report_overview(report: dict[str, Any], client: LLMClient) -> dict[st
         "fallback": False,
         "failed": False,
         "model": client.model if client.available else "",
+        "diagnostic": {},
     }
 
     if not client.available:
         enriched["summary"]["top_observations"] = _fallback_editorial_judgements(enriched)
         meta["fallback"] = True
+        meta["diagnostic"] = _client_diagnostic(client, error_type="missing_api_key")
         enriched["overview_enrichment"] = meta
         return enriched
 
@@ -155,6 +164,7 @@ def enrich_report_overview(report: dict[str, Any], client: LLMClient) -> dict[st
         enriched["summary"]["top_observations"] = _fallback_editorial_judgements(enriched)
         meta["failed"] = True
         meta["fallback"] = True
+        meta["diagnostic"] = _client_diagnostic(client, result=result)
         enriched["overview_enrichment"] = meta
         return enriched
 
@@ -166,6 +176,7 @@ def enrich_report_overview(report: dict[str, Any], client: LLMClient) -> dict[st
         enriched["summary"]["top_observations"] = _fallback_editorial_judgements(enriched)
         meta["failed"] = True
         meta["fallback"] = True
+        meta["diagnostic"] = _client_diagnostic(client, result=result, parse_error=error)
         enriched["overview_enrichment"] = meta
         return enriched
 
@@ -173,8 +184,68 @@ def enrich_report_overview(report: dict[str, Any], client: LLMClient) -> dict[st
     enriched["summary"]["top_observations"] = clean or _fallback_editorial_judgements(enriched)
     meta["ok"] = bool(clean)
     meta["fallback"] = not bool(clean)
+    meta["diagnostic"] = _client_diagnostic(client, result=result)
     enriched["overview_enrichment"] = meta
     return enriched
+
+
+def _attempt_record(
+    item: dict[str, Any],
+    status: str,
+    client: LLMClient,
+    *,
+    result: Any = None,
+    error_type: str | None = None,
+    parse_error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "repo_full_name": str(item.get("repo_full_name") or ""),
+        "status": status,
+        **_client_diagnostic(client, result=result, error_type=error_type, parse_error=parse_error),
+    }
+
+
+def _client_diagnostic(
+    client: LLMClient,
+    *,
+    result: Any = None,
+    error_type: str | None = None,
+    parse_error: str | None = None,
+) -> dict[str, Any]:
+    """Return only routing and bounded error facts safe for debug artifacts."""
+
+    stored = getattr(client, "last_call_diagnostics", {})
+    diagnostic = dict(stored) if isinstance(stored, dict) else {}
+    if result is not None:
+        diagnostic.update(
+            {
+                "provider": getattr(result, "provider", diagnostic.get("provider", "")),
+                "model": getattr(result, "model", diagnostic.get("model", "")),
+                "ok": bool(getattr(result, "ok", False)),
+                "error_type": getattr(result, "error_type", None),
+                "error_message": _safe_error_message(getattr(result, "error_message", None)),
+                "finish_reason": getattr(result, "finish_reason", None),
+            }
+        )
+    if error_type:
+        diagnostic["error_type"] = error_type
+    if parse_error:
+        diagnostic["error_type"] = "parse_failed"
+        diagnostic["error_message"] = _safe_error_message(parse_error)
+    diagnostic.setdefault("initial_provider", getattr(getattr(client, "config", None), "provider", ""))
+    diagnostic.setdefault("initial_model", getattr(client, "model", ""))
+    diagnostic.setdefault("provider", getattr(getattr(client, "config", None), "provider", ""))
+    diagnostic.setdefault("model", getattr(client, "model", ""))
+    diagnostic.setdefault("fallback_attempted", False)
+    diagnostic["error_message"] = _safe_error_message(diagnostic.get("error_message"))
+    return diagnostic
+
+
+def _safe_error_message(value: Any) -> str:
+    text = str(value or "").replace("\n", " ").replace("\r", " ").strip()
+    text = re.sub(r"(?i)(bearer\s+)[^\s]+", r"\1***", text)
+    text = re.sub(r"(?i)\b(sk|ghp|gho|github_pat)_[A-Za-z0-9_-]+", "***", text)
+    return text[:300]
 
 
 def _overview_payload(report: dict[str, Any]) -> str:
