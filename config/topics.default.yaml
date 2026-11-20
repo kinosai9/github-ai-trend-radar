@@ -62,6 +62,62 @@ topics:
       - awesome
       - course
       - tutorial
+  agent_productivity:
+    weight: 1.0
+    keywords:
+      - codebase memory
+      - codebase context
+      - codebase knowledge graph
+      - context engineering
+      - agent skills
+      - agent memory
+      - agent evaluation
+      - agent observability
+      - agent benchmark
+    github_topics:
+      - context-engineering
+      - agent-skills
+      - agent-memory
+    include_queries:
+      - '"codebase memory" OR "codebase context" OR "context engineering"'
+      - '"agent skills" OR "agent evaluation" OR "agent observability"'
+    exclude_keywords: [awesome, course, tutorial]
+  agent_runtime:
+    weight: 1.0
+    keywords:
+      - agent runtime
+      - agent harness
+      - agent orchestration
+      - agent framework
+      - multi-agent orchestration
+      - durable agent execution
+      - agent workflow
+    github_topics:
+      - agent-framework
+      - agent-orchestration
+      - agent-runtime
+    include_queries:
+      - '"agent runtime" OR "agent harness"'
+      - '"agent orchestration" OR "agent workflow"'
+    exclude_keywords: [awesome, course, tutorial]
+  agent_enterprise:
+    weight: 1.0
+    keywords:
+      - enterprise agent
+      - self-hosted agent
+      - agent sandbox
+      - tool permissions
+      - agent governance
+      - agent audit
+      - agent approval
+      - human-in-the-loop
+    github_topics:
+      - agent-sandbox
+      - agent-governance
+    include_queries:
+      - '"enterprise agent" OR "self-hosted agent"'
+      - '"agent sandbox" OR "agent governance" OR "agent audit"'
+    exclude_keywords: [awesome, course, tutorial]
   rag_knowledge:
     weight: 0.9
     keywords:

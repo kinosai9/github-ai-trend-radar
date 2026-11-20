@@ -24,9 +24,8 @@ on:
         type: boolean
         default: true
       focus_topics:
-        description: Comma-separated topic keys
+        description: Comma-separated topic keys (blank uses period defaults)
         type: string
-        default: ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database,gui_computer_use,physical_ai,embodied_ai,edge_on_device_ai,ambient_iot_ai,personal_world_model
       top_n:
         description: Console summary size
         type: string
@@ -60,7 +59,7 @@ jobs:
       USE_LLM: ${{ github.event.inputs.use_llm || 'true' }}
       ENRICH_REPORT: ${{ github.event.inputs.enrich_report || 'true' }}
       PUSHPLUS_ENABLED: ${{ github.event.inputs.pushplus || 'true' }}
-      FOCUS_TOPICS: ${{ github.event.inputs.focus_topics || 'ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database,gui_computer_use,physical_ai,embodied_ai,edge_on_device_ai,ambient_iot_ai,personal_world_model' }}
+      FOCUS_TOPICS: ${{ inputs.focus_topics }}
       TOP_N: ${{ github.event.inputs.top_n || '10' }}
       LLM_TOP_N: ${{ github.event.inputs.llm_top_n || '20' }}
       GH_PAT: ${{ secrets.GH_PAT }}
@@ -130,6 +129,13 @@ jobs:
         run: |
           set -euo pipefail
           PERIOD="${{ steps.context.outputs.period }}"
+          if [[ -z "${FOCUS_TOPICS//[[:space:]]/}" ]]; then
+            if [[ "$PERIOD" == "weekly" ]]; then
+              FOCUS_TOPICS="coding_agent,agent_productivity,agent_runtime,agent_enterprise,ai_agent,mcp,gui_computer_use"
+            else
+              FOCUS_TOPICS="ai_agent,mcp,coding_agent,rag_knowledge,llm_infra,vector_database,gui_computer_use,physical_ai,embodied_ai,edge_on_device_ai,ambient_iot_ai,personal_world_model"
+            fi
+          fi
           args=(
             --period "$PERIOD"
             --focus-topics "$FOCUS_TOPICS"
