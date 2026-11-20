@@ -31,6 +31,15 @@ class OSSInsightError(RuntimeError):
         self.status_code = status_code
 
 
+class OSSInsightUnavailable(OSSInsightError):
+    """The endpoint responded, but its ranking data is explicitly unusable."""
+
+    def __init__(self, message: str, *, raw_path: Path, data_quality: dict[str, Any]) -> None:
+        super().__init__(message, status_code=200)
+        self.raw_path = raw_path
+        self.data_quality = data_quality
+
+
 def ossinsight_period(period: str) -> str:
     try:
         return PERIOD_TO_OSSINSIGHT[period]
@@ -90,6 +99,14 @@ def _find_repo_items(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def ossinsight_data_quality(payload: Any) -> dict[str, Any]:
+    """Return the provider's machine-readable data-quality signal when present."""
+    if not isinstance(payload, dict):
+        return {}
+    quality = payload.get("data_quality")
+    return dict(quality) if isinstance(quality, dict) else {}
+
+
 def fetch_trending_repos(
     period: str,
     *,
@@ -132,6 +149,15 @@ def fetch_trending_repos(
         )
     raw_path = snapshot_path(snapshot_dir, period, "ossinsight-raw")
     save_json(payload, raw_path)
+
+    data_quality = ossinsight_data_quality(payload)
+    if str(data_quality.get("status", "")).lower() == "unavailable":
+        reason = str(data_quality.get("reason") or "OSSInsight marked its ranking data as unavailable.")
+        raise OSSInsightUnavailable(
+            f"OSSInsight ranking data unavailable: {reason}",
+            raw_path=raw_path,
+            data_quality=data_quality,
+        )
 
     items = _find_repo_items(payload)
     LOGGER.info("Fetched %s OSSInsight trending repositories for %s", len(items), period)

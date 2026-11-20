@@ -12,7 +12,13 @@ import requests
 
 from github_ai_trend_radar.llm.config import LLMConfig
 from github_ai_trend_radar.llm.errors import LLMResult
-from github_ai_trend_radar.llm.errors import ERROR_AUTH_FAILED, ERROR_QUOTA_EXCEEDED, ERROR_RATE_LIMITED
+from github_ai_trend_radar.llm.errors import (
+    ERROR_AUTH_FAILED,
+    ERROR_EMPTY_CONTENT,
+    ERROR_PROVIDER_POLICY_BLOCKED,
+    ERROR_QUOTA_EXCEEDED,
+    ERROR_RATE_LIMITED,
+)
 from github_ai_trend_radar.llm.providers.anthropic_compatible import AnthropicCompatibleProvider
 from github_ai_trend_radar.llm.providers.kimi_code import KimiCodeProvider
 from github_ai_trend_radar.llm.providers.moonshot import MoonshotProvider
@@ -136,10 +142,15 @@ class FallbackLLMClient:
         initial = self.active
         result = self.active.complete_json(messages, **kwargs)
         fallback_attempted = self._should_fail_over(result)
+        initial_failure = result if fallback_attempted else None
         if fallback_attempted:
             result = self.active.complete_json(messages, **kwargs)
         self.last_call_diagnostics = _call_diagnostics(
-            result, initial.config.provider, initial.model, fallback_attempted=fallback_attempted
+            result,
+            initial.config.provider,
+            initial.model,
+            fallback_attempted=fallback_attempted,
+            initial_failure=initial_failure,
         )
         return result
 
@@ -147,10 +158,15 @@ class FallbackLLMClient:
         initial = self.active
         result = self.active.complete_text(messages, **kwargs)
         fallback_attempted = self._should_fail_over(result)
+        initial_failure = result if fallback_attempted else None
         if fallback_attempted:
             result = self.active.complete_text(messages, **kwargs)
         self.last_call_diagnostics = _call_diagnostics(
-            result, initial.config.provider, initial.model, fallback_attempted=fallback_attempted
+            result,
+            initial.config.provider,
+            initial.model,
+            fallback_attempted=fallback_attempted,
+            initial_failure=initial_failure,
         )
         return result
 
@@ -170,9 +186,16 @@ class FallbackLLMClient:
         return client
 
     def _should_fail_over(self, result: LLMResult) -> bool:
+        kimi_recoverable = {
+            ERROR_QUOTA_EXCEEDED,
+            ERROR_RATE_LIMITED,
+            ERROR_AUTH_FAILED,
+            ERROR_PROVIDER_POLICY_BLOCKED,
+            ERROR_EMPTY_CONTENT,
+        }
         if (
             result.ok
-            or result.error_type not in {ERROR_QUOTA_EXCEEDED, ERROR_RATE_LIMITED, ERROR_AUTH_FAILED}
+            or result.error_type not in kimi_recoverable
             or self.active is not self.primary
             or not self.fallback.available
         ):
@@ -195,6 +218,7 @@ def _call_diagnostics(
     initial_model: str,
     *,
     fallback_attempted: bool = False,
+    initial_failure: LLMResult | None = None,
 ) -> dict[str, Any]:
     """Capture compact routing facts without retaining prompts or response bodies."""
 
@@ -204,6 +228,8 @@ def _call_diagnostics(
         "provider": result.provider,
         "model": result.model,
         "fallback_attempted": fallback_attempted,
+        "failover_reason": initial_failure.error_type if initial_failure else None,
+        "initial_error_message": initial_failure.error_message if initial_failure else None,
         "ok": result.ok,
         "error_type": result.error_type,
         "error_message": result.error_message,

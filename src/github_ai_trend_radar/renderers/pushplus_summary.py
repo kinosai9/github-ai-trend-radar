@@ -26,6 +26,25 @@ def build_full_report_url(
     return str(report_path), False
 
 
+PUSH_SECTIONS = {"breakout": "趋势突破", "deep_research": "值得深研", "long_term": "长期观察"}
+
+
+def select_push_projects(report: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    sections = report.get("sections", {})
+    selected = {key: [] for key in PUSH_SECTIONS}
+    seen = set()
+    for key in selected:
+        for item in sorted(sections.get(key, []), key=lambda item: item.get("display_score") or 0, reverse=True):
+            repo = str(item.get("repo_full_name") or "").strip().casefold()
+            if not repo or repo in seen:
+                continue
+            selected[key].append(item)
+            seen.add(repo)
+            if len(seen) == 5:
+                return selected
+    return selected
+
+
 def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, full_report_is_url: bool) -> str:
     title = f"{report.get('title', 'GitHub AI 开源趋势雷达')} · {report.get('period_label', '')}".strip()
     stats = report.get("stats", {}) if isinstance(report.get("stats"), dict) else {}
@@ -35,13 +54,15 @@ def render_pushplus_summary(report: dict[str, Any], *, full_report_url: str, ful
     status_label = _run_status_label(run_summary)
     watchlist_count = (report.get("watchlist_queue") or {}).get("count", 0) if isinstance(report.get("watchlist_queue"), dict) else 0
     watchlist_text = f"{watchlist_count} 个" if int(watchlist_count or 0) > 0 else "0 个（本期无强候选）"
+    selected = select_push_projects(report)
     parts = [
         "<div style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:#10233f;line-height:1.65;'>",
         f"<h2 style='margin:0 0 12px;font-size:20px;'>{_e(title)}</h2>",
         _section("本期判断", _ordered(report.get("summary", {}).get("top_observations", [])[:3])),
-        _projects("趋势突破", report.get("sections", {}).get("breakout", [])[:3], show_action=True),
-        _projects("值得深研", report.get("sections", {}).get("deep_research", [])[:2], show_action=False),
     ]
+    for key, title in PUSH_SECTIONS.items():
+        if selected[key] or key == "breakout":
+            parts.append(_projects(title, selected[key], show_action=True))
     if full_report_is_url:
         parts.append(
             "<p style='margin:18px 0;padding:12px;background:#f1f3f5;border-left:3px solid #0a1f3d;'>"
@@ -105,7 +126,7 @@ def _run_status_label(run_summary: dict[str, Any]) -> str:
 
 def _projects(title: str, projects: list[dict[str, Any]], *, show_action: bool) -> str:
     if not projects:
-        return _section(title, "<p style='margin:0;color:#667085;'>暂无。</p>")
+        return _section(title, "<p style='margin:0;color:#667085;'>本期无趋势突破。</p>")
     blocks = []
     for item in projects:
         action = f" · {_e(item.get('recommended_action_label', ''))}" if show_action and item.get("recommended_action_label") else ""

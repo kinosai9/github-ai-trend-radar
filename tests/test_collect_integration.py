@@ -1,5 +1,6 @@
 import json
 
+from github_ai_trend_radar.collectors.ossinsight import OSSInsightUnavailable
 from github_ai_trend_radar.main import main
 
 
@@ -94,3 +95,32 @@ def test_collect_ossinsight_fails_but_github_search_succeeds(monkeypatch, tmp_pa
     assert payload["sources"]["ossinsight"]["ok"] is False
     assert payload["sources"]["github_search"]["ok"] is True
     assert payload["candidates"]
+
+
+def test_collect_ossinsight_unavailable_is_not_treated_as_a_valid_trend_source(monkeypatch, tmp_path):
+    unavailable = OSSInsightUnavailable(
+        "OSSInsight ranking data unavailable: capture degraded",
+        raw_path=tmp_path / "oss.json",
+        data_quality={"status": "unavailable", "unavailable_since": "2026-03-01"},
+    )
+    monkeypatch.setattr(
+        "github_ai_trend_radar.main.fetch_trending_repos",
+        lambda *args, **kwargs: (_ for _ in ()).throw(unavailable),
+    )
+    monkeypatch.setattr(
+        "github_ai_trend_radar.main.collect_github_search",
+        lambda *args, **kwargs: (
+            [{"repo_full_name": "owner/repo", "html_url": "https://github.com/owner/repo", "source_hits": ["github_search"], "metrics": {}, "metadata": {}}],
+            tmp_path / "search.json",
+            Status(),
+        ),
+    )
+    monkeypatch.setattr("github_ai_trend_radar.main.GitHubRepoClient", RepoClient)
+
+    assert main(["collect", "--period", "daily", "--snapshot-dir", str(tmp_path)]) == 0
+    payload = json.loads(next(tmp_path.glob("*-daily-candidates.json")).read_text(encoding="utf-8"))
+    source = payload["sources"]["ossinsight"]
+    assert source["transport_ok"] is True
+    assert source["data_available"] is False
+    assert source["availability"] == "unavailable"
+    assert payload["candidates"][0]["source_hits"] == ["github_search"]

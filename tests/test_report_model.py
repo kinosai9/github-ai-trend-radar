@@ -82,6 +82,24 @@ def test_build_report_model_handles_missing_fields_without_none_text():
     assert "null" not in str(report)
 
 
+def test_report_marks_ossinsight_reachable_but_unavailable_as_not_a_trend_contribution():
+    snapshot = _snapshot([_candidate("owner/repo")])
+    snapshot["sources"] = {
+        "ossinsight": {
+            "ok": False,
+            "transport_ok": True,
+            "data_available": False,
+            "availability": "unavailable",
+        }
+    }
+
+    report = build_report_model(snapshot, load_report_config("missing-config-dir"))
+    source = next(item for item in report["data_sources"] if item["name"] == "OSSInsight")
+
+    assert source["status"] == "趋势数据不可用"
+    assert "暂停" in source["note"]
+
+
 def test_bucket_selection_limit_and_llm_sorting():
     candidates = [
         _candidate("owner/a", llm=0.4),

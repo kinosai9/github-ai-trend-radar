@@ -68,6 +68,16 @@ def _request_once(target: DoctorTarget, *, timeout: float, console: Console) -> 
         console.print(f"final_url: {response.url}")
         console.print(f"content_type: {content_type}")
         console.print(f"response_time_ms: {response_time_ms}")
+        if target.label.startswith("OSSInsight trends"):
+            try:
+                payload = response.json()
+            except (AttributeError, ValueError, requests.RequestException):
+                payload = None
+            quality = payload.get("data_quality") if isinstance(payload, dict) else None
+            if isinstance(quality, dict):
+                console.print(f"ossinsight_data_quality_status: {quality.get('status', 'unknown')}")
+                if quality.get("unavailable_since"):
+                    console.print(f"ossinsight_unavailable_since: {quality['unavailable_since']}")
         console.print("body_preview:")
         console.print(body_preview)
         return response.status_code

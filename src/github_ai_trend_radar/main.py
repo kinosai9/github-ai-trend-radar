@@ -15,7 +15,9 @@ from rich.console import Console
 
 from github_ai_trend_radar.collectors.github_repo import GitHubRepoClient
 from github_ai_trend_radar.collectors.github_search import collect_github_search
-from github_ai_trend_radar.collectors.ossinsight import fetch_trending_repos
+from github_ai_trend_radar.collectors.ossinsight import OSSInsightUnavailable, fetch_trending_repos
+from github_ai_trend_radar.diagnostics.gh_archive import probe_gh_archive
+from github_ai_trend_radar.diagnostics.gh_archive_bigquery import validate_bigquery_trend_query
 from github_ai_trend_radar.config.env import load_local_env
 from github_ai_trend_radar.config_loader import load_topics_config
 from github_ai_trend_radar.diagnostics.doctor import run_doctor
@@ -218,7 +220,17 @@ def _print_llm_group(title: str, candidates: list[dict[str, object]], *, limit: 
         )
 
 
-def _source_status(ok: bool, *, error: str | None = None, status_code: int | None = None, raw_snapshot: object = None) -> dict[str, object]:
+def _source_status(
+    ok: bool,
+    *,
+    error: str | None = None,
+    status_code: int | None = None,
+    raw_snapshot: object = None,
+    transport_ok: bool | None = None,
+    data_available: bool | None = None,
+    availability: str | None = None,
+    data_quality: dict[str, object] | None = None,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "ok": ok,
         "error": error,
@@ -226,6 +238,14 @@ def _source_status(ok: bool, *, error: str | None = None, status_code: int | Non
     }
     if raw_snapshot is not None:
         payload["raw_snapshot"] = str(raw_snapshot)
+    if transport_ok is not None:
+        payload["transport_ok"] = transport_ok
+    if data_available is not None:
+        payload["data_available"] = data_available
+    if availability is not None:
+        payload["availability"] = availability
+    if data_quality:
+        payload["data_quality"] = data_quality
     return payload
 
 
@@ -303,12 +323,33 @@ def collect(args: argparse.Namespace) -> int:
             ranked_item.setdefault("ossinsight_rank", rank)
             ranked_item.setdefault("source_rank", rank)
             candidates.append(normalize_candidate(full_name, source_item=ranked_item))
+    except OSSInsightUnavailable as exc:
+        error_path = _save_ossinsight_error_snapshot(args, exc)
+        sources["ossinsight"] = _source_status(
+            False,
+            error=str(exc),
+            status_code=exc.status_code,
+            raw_snapshot=exc.raw_path,
+            transport_ok=True,
+            data_available=False,
+            availability="unavailable",
+            data_quality=exc.data_quality,
+        )
+        console.print("[bold yellow]OSSInsight endpoint is reachable, but its trend ranking is unavailable.[/bold yellow]")
+        console.print(f"Saved OSSInsight data-quality snapshot: {error_path}")
+        if args.fail_fast or not args.allow_empty:
+            _, candidates_path = _save_empty_collect_snapshots(args, exc)
+            console.print(f"Saved empty candidates snapshot: {candidates_path}")
+            return 1
     except Exception as exc:
         error_path = _save_ossinsight_error_snapshot(args, exc)
         sources["ossinsight"] = _source_status(
             False,
             error=str(exc),
             status_code=getattr(exc, "status_code", None),
+            transport_ok=False,
+            data_available=False,
+            availability="failed",
         )
         console.print(f"[bold red]Collect failed while calling OSSInsight:[/bold red] {exc}")
         console.print(f"Saved OSSInsight error snapshot: {error_path}")
@@ -338,7 +379,12 @@ def collect(args: argparse.Namespace) -> int:
         sources["github_search"] = _source_status(False, error=str(exc), status_code=getattr(exc, "status_code", None))
 
     client = GitHubRepoClient(timeout=min(args.timeout, 8), retries=1)
-    merged_candidates = dedupe_candidates(candidates)[: args.max_candidates]
+    source_candidates = {
+        name: sum(name in candidate.get("source_hits", []) for candidate in candidates)
+        for name in ("ossinsight", "github_search")
+    }
+    unique_candidates = dedupe_candidates(candidates)
+    merged_candidates = unique_candidates[: args.max_candidates]
     enrich_limit = min(args.enrich_top_n, len(merged_candidates))
     enriched_count = 0
     repo_errors: list[str] = []
@@ -385,6 +431,11 @@ def collect(args: argparse.Namespace) -> int:
             "period": args.period,
             "generated_at": _generated_at(),
             "sources": sources,
+            "collection_counts": {
+                "by_source": source_candidates,
+                "unique": len(unique_candidates),
+                "after_limit": len(merged_candidates),
+            },
             "candidates": merged_candidates,
         },
         output_path,
@@ -405,13 +456,15 @@ def score(args: argparse.Namespace) -> int:
 
     scoring_config = load_scoring_config(args.config_dir)
     topics_config = load_topics_config(args.config_dir, focus_topics=args.focus_topics)
+    collected = load_json(candidates_path)
     payload = score_snapshot_payload(
-        load_json(candidates_path),
+        collected,
         scoring_config=scoring_config,
         topics_config=topics_config,
         source_snapshot=str(candidates_path),
     )
     payload = apply_quality_gate_to_payload(payload)
+    payload["stats"]["collection_counts"] = collected.get("collection_counts", {})
     scored_path = snapshot_path(args.snapshot_dir, args.period, "scored")
     save_json(payload, scored_path)
 
@@ -630,6 +683,28 @@ def _status_from_report(report: dict[str, object]) -> str:
 
 def doctor(args: argparse.Namespace) -> int:
     return run_doctor(timeout=args.timeout, console=console, llm=args.llm, research_llm=args.research_llm)
+
+
+def gh_archive_probe(args: argparse.Namespace) -> int:
+    result = probe_gh_archive(timeout=args.timeout, max_events=args.max_events)
+    console.print_json(json.dumps(result, ensure_ascii=False))
+    return 0 if result.get("http_ok") and result.get("parse_ok") else 1
+
+
+def gh_archive_bigquery_validate(args: argparse.Namespace) -> int:
+    periods = ("weekly", "monthly") if args.all else (args.period,)
+    results = [
+        validate_bigquery_trend_query(
+            period=period,
+            execute=args.execute,
+            max_bytes_billed=args.max_bytes_billed,
+            limit=args.limit,
+            timeout=args.timeout,
+        )
+        for period in periods
+    ]
+    console.print_json(json.dumps(results, ensure_ascii=False))
+    return 0 if all(result.get("ok") for result in results) else 1
 
 
 def resolve_run_context(args: argparse.Namespace) -> int:
@@ -921,6 +996,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run Deep Research LLM provider diagnostics.",
     )
     doctor_parser.set_defaults(handler=doctor)
+
+    gh_archive_parser = subparsers.add_parser(
+        "gh-archive-probe",
+        help="Run a read-only feasibility probe against the latest GH Archive hour.",
+    )
+    gh_archive_parser.add_argument("--timeout", type=float, default=30)
+    gh_archive_parser.add_argument("--max-events", type=int, default=1000)
+    gh_archive_parser.set_defaults(handler=gh_archive_probe)
+
+    gh_archive_bq_parser = subparsers.add_parser(
+        "gh-archive-bigquery-validate",
+        help="Dry-run the GH Archive BigQuery trend query for weekly/monthly windows.",
+    )
+    gh_archive_bq_parser.add_argument("--period", choices=("weekly", "monthly"), default="weekly")
+    gh_archive_bq_parser.add_argument("--all", action="store_true", help="Validate both weekly and monthly windows.")
+    gh_archive_bq_parser.add_argument("--execute", action="store_true", help="Execute only with an explicit bytes-billed ceiling.")
+    gh_archive_bq_parser.add_argument("--max-bytes-billed", type=int, default=None)
+    gh_archive_bq_parser.add_argument("--limit", type=int, default=500)
+    gh_archive_bq_parser.add_argument("--timeout", type=float, default=60)
+    gh_archive_bq_parser.set_defaults(handler=gh_archive_bigquery_validate)
 
     render_parser = subparsers.add_parser(
         "render",

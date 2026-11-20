@@ -38,6 +38,24 @@ def test_doctor_command_outputs_diagnostics(monkeypatch, capsys):
     assert len(calls) == 8
 
 
+def test_doctor_surfaces_ossinsight_data_quality_unavailable(monkeypatch, capsys):
+    class Response:
+        status_code = 200
+        url = "https://example.test/"
+        headers = {"content-type": "application/json"}
+        text = '{"data_quality":{"status":"unavailable","unavailable_since":"2026-03-01"}}'
+
+        def json(self):
+            return {"data_quality": {"status": "unavailable", "unavailable_since": "2026-03-01"}}
+
+    monkeypatch.setattr("github_ai_trend_radar.diagnostics.doctor.requests.get", lambda *args, **kwargs: Response())
+
+    assert main(["doctor", "--timeout", "1"]) == 0
+    output = capsys.readouterr().out
+    assert "ossinsight_data_quality_status: unavailable" in output
+    assert "ossinsight_unavailable_since: 2026-03-01" in output
+
+
 def test_doctor_llm_without_api_key_does_not_crash(monkeypatch, capsys):
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.setenv("OPENAI_API_KEY", "")

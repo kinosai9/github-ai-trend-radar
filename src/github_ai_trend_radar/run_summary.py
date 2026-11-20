@@ -6,7 +6,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from github_ai_trend_radar.renderers.pushplus_summary import select_push_projects
 from github_ai_trend_radar.storage.files import load_json, save_json
+
+
+_STATUS_SEVERITY = {"success": 0, "partial_success": 1, "failed": 2}
+
+
+def _combined_status(previous: str | None, current: str) -> str:
+    """Never let a later notification step hide a prior partial failure."""
+    prior = previous or "success"
+    return prior if _STATUS_SEVERITY.get(prior, 2) >= _STATUS_SEVERITY.get(current, 2) else current
 
 
 def write_run_summary(
@@ -22,17 +32,28 @@ def write_run_summary(
     errors: list[str] | None = None,
     timing_seconds: dict[str, float] | None = None,
 ) -> Path:
+    target = Path(output_dir) / f"{report_date}-{period}-run-summary.json"
+    existing = load_json(target) if target.exists() else {}
     report = report or {}
     stats = report.get("stats", {}) if isinstance(report.get("stats"), dict) else {}
     overview = report.get("overview_enrichment", {}) if isinstance(report.get("overview_enrichment"), dict) else {}
     report_enrichment = report.get("report_enrichment", {}) if isinstance(report.get("report_enrichment"), dict) else {}
     watchlist_queue = report.get("watchlist_queue", {}) if isinstance(report.get("watchlist_queue"), dict) else {}
+    selected = select_push_projects(report)
+    sections = report.get("sections", {})
     payload = {
         "period": period,
         "report_date": report_date,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "status": status,
+        "status": _combined_status(existing.get("status") if isinstance(existing, dict) else None, status),
         "sources": report.get("data_sources", []),
+        "counts": {
+            "collection": stats.get("collection_counts", {}),
+            "scored_buckets": stats.get("bucket_counts", {}),
+            "report_sections": {key: len(sections.get(key, [])) for key in selected},
+            "push_sections": {key: len(items) for key, items in selected.items()},
+            "push_selected": sum(len(items) for items in selected.values()),
+        },
         "llm": {
             "project_analysis": report.get("llm", {}),
             "report_card_enrichment": {
@@ -72,12 +93,13 @@ def write_run_summary(
             "render": 0,
             "build_site": 0,
             "pushplus": 0,
+            **(existing.get("timing_seconds", {}) if isinstance(existing, dict) else {}),
             **(timing_seconds or {}),
         },
-        "warnings": warnings or [],
-        "errors": errors or [],
+        "warnings": list(dict.fromkeys((existing.get("warnings", []) if isinstance(existing, dict) else []) + (warnings or []))),
+        "errors": list(dict.fromkeys((existing.get("errors", []) if isinstance(existing, dict) else []) + (errors or []))),
     }
-    return save_json(payload, Path(output_dir) / f"{report_date}-{period}-run-summary.json")
+    return save_json(payload, target)
 
 
 def load_run_summary(output_dir: str | Path, period: str, report_date: str) -> dict[str, Any] | None:

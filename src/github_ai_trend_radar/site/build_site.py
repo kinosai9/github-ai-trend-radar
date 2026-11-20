@@ -3,16 +3,46 @@
 from __future__ import annotations
 
 import html
+import os
 import shutil
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from github_ai_trend_radar.renderers.report_model import ResolvedSnapshot, find_latest_snapshot
 from github_ai_trend_radar.storage.files import ensure_directory, load_json, save_json
 
 REPORT_PERIODS = ("daily", "weekly", "monthly")
+
+
+def restore_published_reports(base_url: str, site_dir: str | Path = "site") -> int:
+    """Seed a fresh runner from the previous public deployment."""
+    base = base_url.rstrip("/")
+    with requests.Session() as session:
+        response = session.get(f"{base}/archive.json", timeout=20)
+        if response.status_code == 404:
+            response = session.get(f"{base}/reports.json", timeout=20)
+        if response.status_code == 404:
+            return 0
+        response.raise_for_status()
+        archive = response.json()
+        if not isinstance(archive, list):
+            raise ValueError("Invalid Pages archive index")
+        target = ensure_directory(Path(site_dir) / "reports")
+        for item in archive:
+            filename = Path(item["html"]).name
+            if not _parse_report_name(filename) or item["html"] != f"reports/{filename}":
+                raise ValueError("Invalid Pages archive report path")
+            for name in (filename, filename.removesuffix(".html") + ".md"):
+                if name.endswith(".md") and not item.get("markdown"):
+                    continue
+                document = session.get(f"{base}/reports/{name}", timeout=20)
+                document.raise_for_status()
+                (target / name).write_bytes(document.content)
+    return len(archive)
 
 
 @dataclass(frozen=True)
@@ -47,7 +77,9 @@ def build_site(
         copied.append(_copy_report_bundle(source_root, target_reports, resolved))
 
     _prune_site_reports(target_reports, {"daily": keep_daily, "weekly": keep_weekly, "monthly": keep_monthly})
-    all_reports = _limit_index_reports(_discover_site_reports(target_reports))
+    archive = _discover_site_reports(target_reports)
+    save_json(archive, target_root / "archive.json")
+    all_reports = _limit_index_reports(archive)
     reports_json_path = save_json(all_reports, target_root / "reports.json")
     index_path = _write_index(target_root / "index.html", all_reports)
     return SiteBuildResult(
@@ -301,3 +333,7 @@ def _report_card(report: dict[str, Any]) -> str:
         f"<div class='muted'><a href='{href}'>HTML</a>{markdown_link}</div>"
         "</div>"
     )
+
+
+if __name__ == "__main__":
+    print(f"Restored {restore_published_reports(os.environ['SITE_BASE_URL'])} published reports")

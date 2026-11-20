@@ -1,7 +1,8 @@
 import json
+from types import SimpleNamespace
 
 from github_ai_trend_radar.main import main
-from github_ai_trend_radar.site.build_site import build_site, infer_site_base_url
+from github_ai_trend_radar.site.build_site import build_site, infer_site_base_url, restore_published_reports
 from github_ai_trend_radar.storage.files import save_json
 
 
@@ -48,6 +49,33 @@ def test_build_site_ignores_missing_periods(tmp_path):
 
     assert len(result.copied_reports) == 1
     assert result.copied_reports[0]["period"] == "daily"
+
+
+def test_fresh_runner_restores_reports_before_deploying_next_period(tmp_path, monkeypatch):
+    first_reports = tmp_path / "first-reports"
+    first_reports.mkdir()
+    _write_report_bundle(first_reports, "2026-11-08", "weekly")
+    first_site = tmp_path / "first-site"
+    build_site(reports_dir=first_reports, site_dir=first_site, period="weekly")
+
+    def get(_, url, *, timeout):
+        path = first_site / url.removeprefix("https://example.com/")
+        return SimpleNamespace(
+            status_code=200, raise_for_status=lambda: None,
+            json=lambda: json.loads(path.read_text(encoding="utf-8")),
+            content=path.read_bytes(),
+        )
+
+    monkeypatch.setattr("requests.Session.get", get)
+    second_site = tmp_path / "second-site"
+    assert restore_published_reports("https://example.com", second_site) == 1
+    second_reports = tmp_path / "second-reports"
+    second_reports.mkdir()
+    _write_report_bundle(second_reports, "2026-12-01", "monthly")
+    build_site(reports_dir=second_reports, site_dir=second_site, period="monthly")
+    published = json.loads((second_site / "archive.json").read_text(encoding="utf-8"))
+    assert [item["period"] for item in published] == ["monthly", "weekly"]
+    assert (second_site / "reports" / "2026-11-08-weekly-report.md").is_file()
 
 
 def test_reports_index_sorted_by_date_desc(tmp_path):

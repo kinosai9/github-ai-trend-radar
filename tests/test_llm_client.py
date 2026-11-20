@@ -4,6 +4,7 @@ from github_ai_trend_radar.llm.errors import (
     ERROR_AUTH_FAILED,
     ERROR_EMPTY_CONTENT,
     ERROR_PROVIDER_PARAMETER,
+    ERROR_PROVIDER_POLICY_BLOCKED,
     ERROR_QUOTA_EXCEEDED,
     ERROR_RATE_LIMITED,
 )
@@ -265,6 +266,73 @@ def test_fallback_client_switches_after_quota_exceeded(caplog):
     assert result.ok is True
     assert client.model == "deepseek"
     assert "LLM failover" in caplog.text
+
+
+def test_fallback_client_switches_after_kimi_high_risk_policy_block():
+    class Primary:
+        available = True
+        model = "kimi-for-coding"
+        config = LLMConfig(provider="kimi_code", api_key="primary")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(
+                False,
+                "",
+                None,
+                "kimi_code",
+                "kimi-for-coding",
+                error_type=ERROR_PROVIDER_POLICY_BLOCKED,
+                error_message="The request was rejected because it was considered high risk",
+            )
+
+    class Backup:
+        available = True
+        model = "deepseek-v4-flash"
+        config = LLMConfig(api_key="fallback")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(True, '{"ok":true}', None, "openai_compatible", "deepseek-v4-flash")
+
+    client = FallbackLLMClient(Primary(), Backup())
+    assert client.complete_json([{"role": "user", "content": "hi"}]).ok is True
+    assert client.last_call_diagnostics["failover_reason"] == ERROR_PROVIDER_POLICY_BLOCKED
+
+
+def test_fallback_client_switches_after_kimi_empty_content():
+    class Primary:
+        available = True
+        model = "kimi-for-coding"
+        config = LLMConfig(provider="kimi_code", api_key="primary")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(
+                False,
+                "",
+                None,
+                "kimi_code",
+                "kimi-for-coding",
+                error_type=ERROR_EMPTY_CONTENT,
+                error_message="Model returned reasoning_content but empty content",
+                reasoning_content="internal reasoning",
+            )
+
+    class Backup:
+        available = True
+        model = "deepseek-v4-flash"
+        config = LLMConfig(api_key="fallback")
+
+        def complete_json(self, *args, **kwargs):
+            return LLMResult(True, '{"ok":true}', None, "openai_compatible", "deepseek-v4-flash")
+
+    client = FallbackLLMClient(Primary(), Backup())
+    assert client.complete_json([{"role": "user", "content": "hi"}]).ok is True
+    assert client.last_call_diagnostics["failover_reason"] == ERROR_EMPTY_CONTENT
+
+
+def test_http_high_risk_mapping():
+    from github_ai_trend_radar.llm.providers.base import classify_http_error
+
+    assert classify_http_error(400, "The request was rejected because it was considered high risk") == ERROR_PROVIDER_POLICY_BLOCKED
 
 
 def test_scoring_stage_reuses_report_fallback_when_dedicated_fallback_is_absent(monkeypatch):

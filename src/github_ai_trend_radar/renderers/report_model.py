@@ -761,7 +761,10 @@ def _data_sources(snapshot: dict[str, Any], uses_llm: bool) -> list[dict[str, st
     result = []
     for key, name, note in names:
         status = sources.get(key, {}) if isinstance(sources.get(key), dict) else {}
-        result.append({"name": name, "note": note, "status": "可用" if status.get("ok", True) else "失败"})
+        if key == "ossinsight" and status.get("availability") == "unavailable":
+            result.append({"name": name, "note": "接口可访问，但本期趋势排名数据暂停", "status": "趋势数据不可用"})
+        else:
+            result.append({"name": name, "note": note, "status": "可用" if status.get("ok", True) else "失败"})
     result.append({"name": "规则评分", "note": "趋势 / 价值 / 雷达分层评分", "status": "已执行"})
     if uses_llm:
         result.append({"name": "LLM 语义校准", "note": "用于解释技术价值和复核噪声，不替代规则评分", "status": "部分执行"})

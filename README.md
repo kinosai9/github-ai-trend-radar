@@ -499,7 +499,36 @@ doctor 会检查 Python 和 `requests` 版本，显示 `HTTP_PROXY`、`HTTPS_PRO
 - GitHub 和 OSSInsight 都超时、DNS 失败或连接失败：优先检查本地网络、代理、公司网络策略或 CI 网络出口。
 - GitHub 返回 `401` 或 `403`：检查 `GH_PAT` / `GITHUB_TOKEN` 是否存在、是否有效、是否触发 rate limit；doctor 只显示 token 是否存在，不会打印值。
 - OSSInsight 页面 `https://ossinsight.io/trending` 可访问，但 API 失败：更可能是 API endpoint 或参数组合问题。
+- OSSInsight API 返回 `200`，但 payload 中标记 `data_quality.status=unavailable`：接口本身可访问，但排名数据已暂停或不完整。项目会停止把它当作有效趋势来源，继续使用 GitHub Search 生成候选；这不是 token、代理或本地网络问题。
 - GitHub Actions 的 `Configure Pages` 步骤报 `Get Pages site failed` / `Not Found`：先确认仓库是 public，或账号计划支持 private Pages；确认 Settings → Pages → Source 是 GitHub Actions；确认 workflow 使用 `actions/configure-pages@v5` 并设置 `enablement: true`；确认 workflow permissions 包含 `pages: write` 和 `id-token: write`。
+
+### GH Archive 可行性探针
+
+GH Archive 记录公开 GitHub 事件，可作为未来“真实近期事件趋势”来源的候选，但尚未接入正式评分或 GitHub Actions。先运行只读探针，验证最近完整小时的归档是否可访问、可解析且包含预期事件类型：
+
+```bash
+python -m github_ai_trend_radar.main gh-archive-probe --timeout 30 --max-events 1000
+```
+
+探针不会保存原始事件、不调用 LLM，也不代表 GH Archive 已通过覆盖率、延迟或 BigQuery 成本验证。事件本身没有 AI topic、README 或项目描述，因此 GH Archive 只能为 GitHub Search 召回出的候选计算事件速度，不能独立替代主题召回。正式接入前还需要独立验证主题候选覆盖、事件完整性与查询预算。
+
+### GH Archive BigQuery 周报/月报成本验证
+
+日报已停用；BigQuery 验证只支持周报和月报。配置 Google Cloud Application Default Credentials 与一个可创建 BigQuery query job 的项目后，先运行 dry-run：
+
+```powershell
+$env:GH_ARCHIVE_BIGQUERY_PROJECT = "your-gcp-project"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secure\service-account.json"
+python -m github_ai_trend_radar.main gh-archive-bigquery-validate --all
+```
+
+dry-run 不执行查询，只返回 `estimated_bytes_processed` 与免费额度前的按量成本估算。真实执行必须明确设置扫描上限：
+
+```powershell
+python -m github_ai_trend_radar.main gh-archive-bigquery-validate --period weekly --execute --max-bytes-billed 50000000000
+```
+
+不要提交服务账号 JSON，也不要把它写入 `.env.local` 后同步到公开仓库。后续若用于 Actions，应通过 secret 写入临时凭据文件，并维持 BigQuery 只读、最小权限。
 
 Windows PowerShell 临时设置代理：
 

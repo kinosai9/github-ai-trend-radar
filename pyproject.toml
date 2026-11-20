@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
   "requests",
+  "google-auth",
   "pyyaml",
   "beautifulsoup4",
   "python-dateutil",

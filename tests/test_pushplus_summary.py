@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from github_ai_trend_radar.renderers.pushplus_summary import build_full_report_url, render_pushplus_summary
+from github_ai_trend_radar.renderers.pushplus_summary import build_full_report_url, render_pushplus_summary, select_push_projects
 
 
 def _report():
@@ -38,10 +38,29 @@ def test_pushplus_summary_contains_observations_top3_and_full_report_link():
     assert "判断一" in html
     assert "owner/b0" in html
     assert "owner/b2" in html
-    assert "owner/b3" not in html
-    assert "owner/d1" in html
+    assert "owner/b3" in html
+    assert "owner/d0" in html
+    assert "owner/d1" not in html
     assert "owner/d2" not in html
     assert "https://example.com/report.html" in html
+
+
+def test_empty_breakout_fills_unique_projects_from_other_sections():
+    report = _report()
+    sections = report["sections"]
+    sections["breakout"] = []
+    sections["long_term"] = [
+        {"repo_full_name": "OWNER/D0", "display_score": 1},
+        {"repo_full_name": "owner/w0", "display_score": 0.5},
+        {"repo_full_name": "owner/w1", "display_score": 0.6},
+        {"repo_full_name": "owner/w2", "display_score": 0.4},
+    ]
+    selected = select_push_projects(report)
+    assert [item["repo_full_name"] for item in selected["long_term"]] == ["owner/w1", "owner/w0"]
+    assert sum(map(len, selected.values())) == 5
+    html = render_pushplus_summary(report, full_report_url="local.html", full_report_is_url=False)
+    assert "本期无趋势突破" in html
+    assert "长期观察" in html
 
 
 def test_site_base_url_derives_full_report_url():

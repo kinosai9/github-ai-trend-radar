@@ -10,7 +10,7 @@ on:
           - daily
           - weekly
           - monthly
-        default: daily
+        default: weekly
       use_llm:
         description: Run LLM semantic calibration
         type: boolean
@@ -149,6 +149,9 @@ jobs:
           fi
           python -m github_ai_trend_radar.main run "${args[@]}"
 
+      - name: Restore published reports
+        run: python -m github_ai_trend_radar.site.build_site
+
       - name: Build static site
         run: >
           python -m github_ai_trend_radar.main build-site
@@ -195,6 +198,15 @@ jobs:
           --date latest
           --channel pushplus
           --full-report-url "${{ steps.report.outputs.url }}"
+
+      - name: Upload compact run summaries
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trend-radar-run-summaries
+          path: data/reports/*run-summary.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Upload debug artifacts
         uses: actions/upload-artifact@v4

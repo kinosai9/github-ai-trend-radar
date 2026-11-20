@@ -29,3 +29,27 @@ def test_run_summary_contains_quality_gate_editorial_and_timing(tmp_path):
     assert payload["llm"]["report_card_enrichment"]["failed_count"] == 1
     assert payload["llm"]["report_card_enrichment"]["attempts"][0]["error_type"] == "empty_content"
     assert "render" in payload["timing_seconds"]
+
+
+def test_push_step_cannot_overwrite_prior_partial_success(tmp_path):
+    report = {"stats": {}, "data_sources": []}
+    write_run_summary(
+        output_dir=tmp_path,
+        period="weekly",
+        report_date="2026-09-06",
+        report=report,
+        status="partial_success",
+        warnings=["three project-level LLM calls failed"],
+    )
+    path = write_run_summary(
+        output_dir=tmp_path,
+        period="weekly",
+        report_date="2026-09-06",
+        report=report,
+        status="success",
+        pushplus_status="sent",
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["status"] == "partial_success"
+    assert payload["pushplus"]["status"] == "sent"
+    assert payload["warnings"] == ["three project-level LLM calls failed"]

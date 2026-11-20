@@ -10,6 +10,7 @@ from github_ai_trend_radar.llm.errors import (
     ERROR_HTTP,
     ERROR_NETWORK,
     ERROR_PROVIDER_PARAMETER,
+    ERROR_PROVIDER_POLICY_BLOCKED,
     ERROR_RATE_LIMITED,
     ERROR_QUOTA_EXCEEDED,
     ERROR_TIMEOUT,
@@ -45,6 +46,14 @@ def classify_http_error(status_code: int, message: str) -> str:
     quota_terms = ("quota", "usage limit", "5-hour", "5 hour", "exceeded", "用量", "配额")
     if status_code in {403, 429} and any(term in lowered for term in quota_terms):
         return ERROR_QUOTA_EXCEEDED
+    # Kimi Coding returns HTTP 400 when its policy layer rejects a request as
+    # high risk. This is not a malformed client payload, so it may use a
+    # configured fallback provider instead of silently losing the report item.
+    if status_code in {400, 403} and any(
+        term in lowered
+        for term in ("considered high risk", "high risk", "policy blocked", "content policy")
+    ):
+        return ERROR_PROVIDER_POLICY_BLOCKED
     if status_code in {401, 403}:
         return ERROR_AUTH_FAILED
     if status_code == 429:
